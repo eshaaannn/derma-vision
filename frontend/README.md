@@ -18,10 +18,13 @@ npm install
 npm run dev
 ```
 
-Copy `.env.example` to `.env` and set backend URL:
+Copy `.env.example` to `.env` and set backend + Supabase values:
 
 ```env
 VITE_API_BASE_URL=http://localhost:8000
+VITE_API_KEY=hackathon-demo-key
+VITE_SUPABASE_URL=https://naxucoudkdrflzxdcsiu.supabase.co
+VITE_SUPABASE_ANON_KEY=your_anon_key
 ```
 
 ## API
