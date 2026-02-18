@@ -11,6 +11,14 @@ class Settings:
     APP_NAME: str = os.getenv("APP_NAME", "Derma Vision API")
     APP_VERSION: str = os.getenv("APP_VERSION", "0.1.0")
     API_KEY: str | None = os.getenv("API_KEY")
+    CORS_ORIGINS: list[str] = [
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173",
+        ).split(",")
+        if origin.strip()
+    ]
 
     MAX_IMAGE_BYTES: int = int(os.getenv("MAX_IMAGE_BYTES", str(5 * 1024 * 1024)))
     INFERENCE_TIMEOUT_SECONDS: float = float(os.getenv("INFERENCE_TIMEOUT_SECONDS", "10"))
@@ -23,7 +31,7 @@ class Settings:
     MIN_EDGE_INTENSITY: float = float(os.getenv("MIN_EDGE_INTENSITY", "6.0"))
     MAX_SCORE_DISAGREEMENT: float = float(os.getenv("MAX_SCORE_DISAGREEMENT", "0.35"))
 
-    MODEL_MODULE: str = os.getenv("MODEL_MODULE", "app.sample_model")
+    MODEL_MODULE: str = os.getenv("MODEL_MODULE", "app.ai_model_adapter")
     MODEL_CALLABLE: str = os.getenv("MODEL_CALLABLE", "predict_image_bytes")
     MODEL_VERSION: str = os.getenv("MODEL_VERSION", "demo-v1")
 

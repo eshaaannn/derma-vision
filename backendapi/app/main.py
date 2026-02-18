@@ -7,6 +7,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, File, Form, Header, Query, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import Settings, get_settings
@@ -35,6 +36,15 @@ DISCLAIMER = "This is a screening result, not a diagnosis. Please consult a derm
 
 app = FastAPI(title="Derma Vision API", version="0.1.0")
 add_error_handlers(app)
+
+settings = get_settings()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 model_service = ModelService()
 db_service = SupabaseService()

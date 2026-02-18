@@ -4,3 +4,4 @@ python-multipart==0.0.20
 pydantic==2.10.6
 supabase==2.13.0
 Pillow==11.1.0
+python-dotenv==1.0.1
