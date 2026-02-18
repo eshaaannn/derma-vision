@@ -14,7 +14,8 @@ import NotFoundPage from "./pages/NotFoundPage";
 import { LOGO_CANDIDATES, setFavicon } from "./utils/brand";
 
 function HomeRedirect() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) return null;
   return <Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />;
 }
 

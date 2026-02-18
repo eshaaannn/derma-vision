@@ -1,139 +1,152 @@
-import { createContext, useContext, useMemo, useState } from "react";
-import { createId } from "../utils/id";
-
-const AUTH_STORAGE_KEY = "derma_auth_state";
-const USERS_STORAGE_KEY = "derma_users";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 const AuthContext = createContext(null);
 
-function getSavedAuthState() {
-  const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-  if (!raw) {
-    return { user: null, token: null };
-  }
+function mapSupabaseUser(authUser) {
+  if (!authUser) return null;
 
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    return { user: null, token: null };
-  }
-}
+  const metadata = authUser.user_metadata || {};
+  const fullName =
+    metadata.fullName || metadata.full_name || authUser.email?.split("@")[0] || "User";
 
-function getUsers() {
-  const raw = localStorage.getItem(USERS_STORAGE_KEY);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    return [];
-  }
-}
-
-function saveUsers(users) {
-  localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-}
-
-function saveAuthState(state) {
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(state));
-}
-
-function fakeDelay(timeout = 800) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, timeout);
-  });
+  return {
+    id: authUser.id,
+    fullName,
+    email: authUser.email || "",
+    avatar:
+      metadata.avatar ||
+      "https://api.dicebear.com/9.x/thumbs/svg?seed=" + encodeURIComponent(fullName),
+    age: metadata.age || "",
+    phone: metadata.phone || "",
+  };
 }
 
 export function AuthProvider({ children }) {
-  const initialState = getSavedAuthState();
-  const [user, setUser] = useState(initialState.user);
-  const [token, setToken] = useState(initialState.token);
+  const [session, setSession] = useState(null);
+  const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const signup = async ({ fullName, email, password }) => {
-    await fakeDelay();
-    const users = getUsers();
-    const exists = users.find((entry) => entry.email === email.toLowerCase());
-    if (exists) {
-      throw new Error("An account with this email already exists.");
+  useEffect(() => {
+    let mounted = true;
+
+    async function initializeAuth() {
+      const { data } = await supabase.auth.getSession();
+      if (!mounted) return;
+
+      const nextSession = data?.session || null;
+      setSession(nextSession);
+      setUser(mapSupabaseUser(nextSession?.user || null));
+      setIsLoading(false);
     }
 
-    const newUser = {
-      id: createId("user"),
-      fullName,
-      email: email.toLowerCase(),
-      password,
-      avatar:
-        "https://api.dicebear.com/9.x/thumbs/svg?seed=" +
-        encodeURIComponent(fullName),
-      age: "",
-      phone: "",
+    initializeAuth();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession || null);
+      setUser(mapSupabaseUser(nextSession?.user || null));
+      setIsLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
     };
+  }, []);
 
-    users.push(newUser);
-    saveUsers(users);
+  const signup = async ({ fullName, email, password }) => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const avatar =
+      "https://api.dicebear.com/9.x/thumbs/svg?seed=" + encodeURIComponent(fullName || "User");
 
-    const nextToken = `token_${Date.now()}`;
-    const authUser = { ...newUser };
-    delete authUser.password;
+    const { data, error } = await supabase.auth.signUp({
+      email: normalizedEmail,
+      password,
+      options: {
+        data: {
+          fullName: fullName.trim(),
+          avatar,
+        },
+      },
+    });
 
-    setUser(authUser);
-    setToken(nextToken);
-    saveAuthState({ user: authUser, token: nextToken });
-    return authUser;
+    if (error) {
+      throw new Error(error.message || "Sign up failed.");
+    }
+
+    if (!data.session) {
+      throw new Error("Signup successful. Please verify your email, then log in.");
+    }
+
+    return mapSupabaseUser(data.user || data.session.user);
   };
 
   const login = async ({ email, password }) => {
-    await fakeDelay();
-    const users = getUsers();
-    const account = users.find(
-      (entry) => entry.email === email.toLowerCase() && entry.password === password
-    );
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
 
-    if (!account) {
-      throw new Error("Invalid email or password.");
+    if (error) {
+      throw new Error(error.message || "Invalid email or password.");
     }
 
-    const nextToken = `token_${Date.now()}`;
-    const authUser = { ...account };
-    delete authUser.password;
-
-    setUser(authUser);
-    setToken(nextToken);
-    saveAuthState({ user: authUser, token: nextToken });
-    return authUser;
+    return mapSupabaseUser(data.user || data.session?.user);
   };
 
-  const logout = () => {
-    setUser(null);
-    setToken(null);
-    saveAuthState({ user: null, token: null });
+  const logout = async () => {
+    await supabase.auth.signOut();
   };
 
   const updateProfile = async (profilePayload) => {
-    await fakeDelay(500);
-    if (!user) return;
+    if (!session?.user) return;
 
-    const users = getUsers();
-    const nextUsers = users.map((entry) =>
-      entry.id === user.id ? { ...entry, ...profilePayload } : entry
-    );
-    saveUsers(nextUsers);
+    const fullName = profilePayload.fullName?.trim() || user?.fullName || "";
+    const avatar =
+      profilePayload.avatar ||
+      user?.avatar ||
+      "https://api.dicebear.com/9.x/thumbs/svg?seed=" + encodeURIComponent(fullName || "User");
 
-    const nextUser = { ...user, ...profilePayload };
-    setUser(nextUser);
-    saveAuthState({ user: nextUser, token });
+    const updatePayload = {
+      data: {
+        ...(session.user.user_metadata || {}),
+        fullName,
+        avatar,
+        age: profilePayload.age || "",
+        phone: profilePayload.phone || "",
+      },
+    };
+
+    const nextEmail = profilePayload.email?.trim().toLowerCase();
+    if (nextEmail && nextEmail !== session.user.email) {
+      updatePayload.email = nextEmail;
+    }
+
+    const { data, error } = await supabase.auth.updateUser(updatePayload);
+    if (error) {
+      throw new Error(error.message || "Profile update failed.");
+    }
+
+    const nextAuthUser = data.user || {
+      ...session.user,
+      email: updatePayload.email || session.user.email,
+      user_metadata: updatePayload.data,
+    };
+    setUser(mapSupabaseUser(nextAuthUser));
   };
 
   const value = useMemo(
     () => ({
       user,
-      token,
-      isAuthenticated: Boolean(token && user),
+      token: session?.access_token || null,
+      isAuthenticated: Boolean(session?.access_token),
+      isLoading,
       login,
       signup,
       logout,
       updateProfile,
     }),
-    [token, user]
+    [isLoading, session?.access_token, user]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
