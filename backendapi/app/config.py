@@ -14,6 +14,14 @@ class Settings:
 
     MAX_IMAGE_BYTES: int = int(os.getenv("MAX_IMAGE_BYTES", str(5 * 1024 * 1024)))
     INFERENCE_TIMEOUT_SECONDS: float = float(os.getenv("INFERENCE_TIMEOUT_SECONDS", "10"))
+    MAX_IMAGE_COUNT: int = int(os.getenv("MAX_IMAGE_COUNT", "4"))
+    MIN_IMAGE_WIDTH: int = int(os.getenv("MIN_IMAGE_WIDTH", "224"))
+    MIN_IMAGE_HEIGHT: int = int(os.getenv("MIN_IMAGE_HEIGHT", "224"))
+    MAX_IMAGE_DIMENSION: int = int(os.getenv("MAX_IMAGE_DIMENSION", "4096"))
+    MIN_BRIGHTNESS_MEAN: float = float(os.getenv("MIN_BRIGHTNESS_MEAN", "12"))
+    MAX_BRIGHTNESS_MEAN: float = float(os.getenv("MAX_BRIGHTNESS_MEAN", "245"))
+    MIN_EDGE_INTENSITY: float = float(os.getenv("MIN_EDGE_INTENSITY", "6.0"))
+    MAX_SCORE_DISAGREEMENT: float = float(os.getenv("MAX_SCORE_DISAGREEMENT", "0.35"))
 
     MODEL_MODULE: str = os.getenv("MODEL_MODULE", "app.sample_model")
     MODEL_CALLABLE: str = os.getenv("MODEL_CALLABLE", "predict_image_bytes")

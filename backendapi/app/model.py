@@ -12,6 +12,7 @@ from .config import get_settings
 class Prediction:
     risk_score: float
     top_label: str
+    explainability: dict[str, Any] | None = None
 
 
 class ModelService:
@@ -45,7 +46,10 @@ class ModelService:
         )
         risk_score = max(0.0, min(1.0, float(result["risk_score"])))
         top_label = str(result.get("top_label", "unknown"))
-        return Prediction(risk_score=risk_score, top_label=top_label)
+        explainability = result.get("explainability")
+        if explainability is not None and not isinstance(explainability, dict):
+            explainability = {"raw": explainability}
+        return Prediction(risk_score=risk_score, top_label=top_label, explainability=explainability)
 
 
 def map_risk_level(score: float) -> str:
