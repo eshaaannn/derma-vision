@@ -36,9 +36,15 @@ class EnhancedDetails(BaseModel):
     reasoning: str
 
 
+class FollowupQuestion(BaseModel):
+    key: str
+    question: str
+
+
 class FollowupResponse(BaseModel):
     requires_followup: bool
     questions: list[str] = Field(default_factory=list)
+    items: list[FollowupQuestion] = Field(default_factory=list)
 
 
 class PredictEnhancedResponse(BaseModel):

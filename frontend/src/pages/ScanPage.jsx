@@ -11,11 +11,12 @@ import UploadProgress from "../components/scan/UploadProgress";
 import CancerQuestionnaire from "../components/scan/CancerQuestionnaire";
 import { dataUrlToFile, fileToDataUrl } from "../utils/cropImage";
 import { addScan, saveLastResult } from "../utils/storage";
-import { predictLesion } from "../services/api";
+import { predictLesionEnhanced } from "../services/api";
 import { getRiskScore, normalizePredictionResponse } from "../utils/prediction";
 import { useToast } from "../context/ToastContext";
 import { createId } from "../utils/id";
 import {
+  buildEnhancedContext,
   QUESTIONNAIRE_DEFAULTS,
   evaluateCancerQuestionnaire,
   isQuestionnaireComplete,
@@ -138,6 +139,10 @@ function ScanPage() {
   const [error, setError] = useState("");
   const [canUseDemo, setCanUseDemo] = useState(false);
   const [questionnaire, setQuestionnaire] = useState({ ...QUESTIONNAIRE_DEFAULTS });
+  const [followupItems, setFollowupItems] = useState([]);
+  const [followupAnswers, setFollowupAnswers] = useState({});
+  const [pendingContextPayload, setPendingContextPayload] = useState(null);
+  const [pendingQuestionnaireAssessment, setPendingQuestionnaireAssessment] = useState(null);
   const imagesRef = useRef([]);
 
   const hasImages = useMemo(() => images.length > 0, [images.length]);
@@ -152,6 +157,15 @@ function ScanPage() {
   const selectedImage = useMemo(
     () => images.find((image) => image.id === selectedImageId) || images[0] || null,
     [images, selectedImageId]
+  );
+  const awaitingFollowup = useMemo(() => followupItems.length > 0, [followupItems.length]);
+  const followupComplete = useMemo(
+    () =>
+      followupItems.every((item) => {
+        const raw = followupAnswers[item.key];
+        return typeof raw === "string" ? raw.trim().length > 0 : Boolean(raw);
+      }),
+    [followupAnswers, followupItems]
   );
 
   useEffect(() => {
@@ -177,12 +191,20 @@ function ScanPage() {
     };
   }, []);
 
+  const clearFollowupState = () => {
+    setFollowupItems([]);
+    setFollowupAnswers({});
+    setPendingContextPayload(null);
+    setPendingQuestionnaireAssessment(null);
+  };
+
   const handleIncomingFiles = (files) => {
     const validFiles = files.filter((file) => file.type.startsWith("image/"));
     if (!validFiles.length) return;
 
     setError("");
     setCanUseDemo(false);
+    clearFollowupState();
 
     const nextImages = validFiles.map((file) => ({
       id: createId("scan_image"),
@@ -214,6 +236,7 @@ function ScanPage() {
   };
 
   const removeImage = (imageId) => {
+    clearFollowupState();
     setImages((current) => {
       const target = current.find((image) => image.id === imageId);
       if (target?.previewUrl?.startsWith("blob:")) {
@@ -238,9 +261,17 @@ function ScanPage() {
     setError("");
     setCanUseDemo(false);
     setQuestionnaire({ ...QUESTIONNAIRE_DEFAULTS });
+    clearFollowupState();
   };
 
-  const finalizeResult = async (normalized, perImageResults, finalQuestionnaireAssessment) => {
+  const finalizeResult = async (
+    normalized,
+    perImageResults,
+    finalQuestionnaireAssessment,
+    contextPayload,
+    backendResponse,
+    followupAnswerPayload = null
+  ) => {
     const persistentImages = await Promise.all(images.map((image) => fileToDataUrl(image.file)));
     const scan = {
       id: createId("scan"),
@@ -256,9 +287,19 @@ function ScanPage() {
       probabilities: normalized.probabilities,
       riskScore: getRiskScore(normalized.riskLevel),
       questionnaireAnswers: { ...questionnaire },
+      contextPayload,
       questionnaireAssessment: finalQuestionnaireAssessment
         ? { ...finalQuestionnaireAssessment, answeredAt: new Date().toISOString() }
         : null,
+      followupQuestions:
+        normalized.followupQuestions?.length
+          ? normalized.followupQuestions
+          : followupItems.map((item) => item.question),
+      followupItems: normalized.followupItems?.length ? normalized.followupItems : followupItems,
+      followupAnswers: followupAnswerPayload,
+      backendStatus: backendResponse?.status || "success",
+      topLabel: backendResponse?.top_label || normalized.predictedClass,
+      modelExplainability: backendResponse?.model_explainability || null,
       aiImageBreakdown: perImageResults.map((entry, index) => ({
         imageNumber: index + 1,
         confidence: Math.round(entry.confidence),
@@ -272,16 +313,43 @@ function ScanPage() {
     navigate("/result", { state: { result: scan } });
   };
 
+  const buildPerImageResults = (response, normalized) => {
+    const perImageScores = Array.isArray(response?.details?.individual_scores)
+      ? response.details.individual_scores
+      : [];
+    return images.map((_, index) => {
+      const score = Number(perImageScores[index]);
+      const safeScore = Number.isFinite(score) ? Math.min(1, Math.max(0, score)) : null;
+      const riskLevel =
+        safeScore === null
+          ? normalized.riskLevel
+          : safeScore >= 0.75
+            ? "High"
+            : safeScore >= 0.4
+              ? "Medium"
+              : "Low";
+      return {
+        confidence: safeScore === null ? normalized.confidence : safeScore * 100,
+        predictedClass: normalized.predictedClass,
+        riskLevel,
+      };
+    });
+  };
+
   const analyzeImages = async () => {
     if (!images.length) {
       setError("Please upload at least one image before analysis.");
       return;
     }
+    if (awaitingFollowup) {
+      setError("Please answer follow-up questions to get final prediction.");
+      return;
+    }
     if (!questionnaireComplete) {
-      setError("Please complete the cancer questionnaire before AI analysis.");
+      setError("Please complete the image context form before AI analysis.");
       showToast({
         type: "warning",
-        title: "Questionnaire Incomplete",
+        title: "Context Incomplete",
         message: "Answer all questionnaire fields to continue.",
       });
       return;
@@ -294,31 +362,72 @@ function ScanPage() {
 
     try {
       const finalQuestionnaireAssessment = evaluateCancerQuestionnaire(questionnaire);
-      const predictions = [];
-      const totalImages = images.length;
-
-      for (let index = 0; index < totalImages; index += 1) {
-        const file = images[index].file;
-        const data = await predictLesion(file, (event) => {
+      const contextPayload = buildEnhancedContext(questionnaire);
+      clearFollowupState();
+      const response = await predictLesionEnhanced(
+        images.map((image) => image.file),
+        contextPayload,
+        {},
+        (event) => {
           if (!event.total) return;
-          const filePercent = event.loaded / event.total;
-          const combinedPercent = ((index + filePercent) / totalImages) * 95;
-          setUploadProgress(Math.round(Math.min(combinedPercent, 95)));
-        });
+          const percent = (event.loaded / event.total) * 95;
+          setUploadProgress(Math.round(Math.min(percent, 95)));
+        }
+      );
 
-        predictions.push(normalizePredictionResponse(data));
-        setUploadProgress(Math.round(((index + 1) / totalImages) * 95));
+      if (response?.status && response.status !== "success") {
+        const followups = Array.isArray(response?.followup?.questions)
+          ? response.followup.questions
+          : [];
+        const fallbackMessage = "Analysis could not complete. Please retake clear images and try again.";
+        setError(response?.message || fallbackMessage);
+        if (followups.length) {
+          showToast({
+            type: "warning",
+            title: "More Context Needed",
+            message: followups[0],
+          });
+        }
+        return;
       }
 
-      const merged = aggregatePredictions(predictions);
-      const fused = fusePredictionWithQuestionnaire(merged, finalQuestionnaireAssessment);
+      const normalized = normalizePredictionResponse(response);
+      const followupFromApi = Array.isArray(normalized.followupItems)
+        ? normalized.followupItems.filter((item) => item?.key && item?.question).slice(0, 6)
+        : [];
+
+      if (followupFromApi.length) {
+        setFollowupItems(followupFromApi);
+        setFollowupAnswers(
+          Object.fromEntries(followupFromApi.map((item) => [item.key, ""]))
+        );
+        setPendingContextPayload(contextPayload);
+        setPendingQuestionnaireAssessment(finalQuestionnaireAssessment);
+        setUploadProgress(100);
+        showToast({
+          type: "warning",
+          title: "Follow-up Required",
+          message: "Step 2: answer the relevant follow-up questions to get final prediction.",
+        });
+        return;
+      }
+
+      const perImageResults = buildPerImageResults(response, normalized);
+
       setUploadProgress(100);
       showToast({
         type: "success",
         title: "Analysis Complete",
-        message: `Final prediction generated from ${images.length} images + questionnaire.`,
+        message: `Final prediction generated from ${images.length} image(s) + provided context.`,
       });
-      await finalizeResult(fused, predictions, finalQuestionnaireAssessment);
+      await finalizeResult(
+        normalized,
+        perImageResults,
+        finalQuestionnaireAssessment,
+        contextPayload,
+        response,
+        null
+      );
     } catch (apiError) {
       setError("Could not reach prediction API. You can retry or continue with demo data.");
       setCanUseDemo(true);
@@ -332,9 +441,73 @@ function ScanPage() {
     }
   };
 
+  const submitFollowupForFinalPrediction = async () => {
+    if (!awaitingFollowup) {
+      return;
+    }
+    if (!followupComplete) {
+      setError("Please answer all follow-up questions before final prediction.");
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setError("");
+    setUploadProgress(0);
+
+    const contextPayload = pendingContextPayload || buildEnhancedContext(questionnaire);
+    const finalQuestionnaireAssessment =
+      pendingQuestionnaireAssessment || evaluateCancerQuestionnaire(questionnaire);
+
+    try {
+      const response = await predictLesionEnhanced(
+        images.map((image) => image.file),
+        contextPayload,
+        followupAnswers,
+        (event) => {
+          if (!event.total) return;
+          const percent = (event.loaded / event.total) * 95;
+          setUploadProgress(Math.round(Math.min(percent, 95)));
+        }
+      );
+
+      if (response?.status && response.status !== "success") {
+        setError(response?.message || "Could not complete final prediction.");
+        return;
+      }
+
+      const normalized = normalizePredictionResponse(response);
+      const perImageResults = buildPerImageResults(response, normalized);
+      setUploadProgress(100);
+      showToast({
+        type: "success",
+        title: "Final Prediction Ready",
+        message: "Final score updated using follow-up answers.",
+      });
+      await finalizeResult(
+        normalized,
+        perImageResults,
+        finalQuestionnaireAssessment,
+        contextPayload,
+        response,
+        { ...followupAnswers }
+      );
+      clearFollowupState();
+    } catch (apiError) {
+      setError("Could not process follow-up answers right now. Please retry.");
+      showToast({
+        type: "error",
+        title: "Final Prediction Failed",
+        message: apiError?.message || "API error while processing follow-up answers.",
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const useDemoResult = async () => {
     const finalQuestionnaireAssessment = evaluateCancerQuestionnaire(questionnaire);
     const demoPredictions = images.map(() => generateDemoPrediction());
+    const contextPayload = buildEnhancedContext(questionnaire);
     const merged = aggregatePredictions(demoPredictions);
     const fused = fusePredictionWithQuestionnaire(merged, finalQuestionnaireAssessment);
     showToast({
@@ -342,11 +515,19 @@ function ScanPage() {
       title: "Demo Mode",
       message: "Showing simulated result because API was unavailable.",
     });
-    await finalizeResult(fused, demoPredictions, finalQuestionnaireAssessment);
+    await finalizeResult(fused, demoPredictions, finalQuestionnaireAssessment, contextPayload, null);
   };
 
   const handleQuestionAnswer = (key, value) => {
+    if (awaitingFollowup) {
+      clearFollowupState();
+    }
     setQuestionnaire((current) => ({ ...current, [key]: value }));
+    setError("");
+  };
+
+  const handleFollowupAnswer = (key, value) => {
+    setFollowupAnswers((current) => ({ ...current, [key]: value }));
     setError("");
   };
 
@@ -452,8 +633,12 @@ function ScanPage() {
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={analyzeImages} loading={isAnalyzing} disabled={!questionnaireComplete}>
-              Analyze {images.length} Image{images.length > 1 ? "s" : ""} with AI
+            <Button
+              onClick={analyzeImages}
+              loading={isAnalyzing}
+              disabled={!questionnaireComplete || awaitingFollowup}
+            >
+              Analyze {images.length} Image{images.length > 1 ? "s" : ""} with AI + Context
             </Button>
             <Button variant="ghost" onClick={resetSelection}>
               Clear All
@@ -461,7 +646,12 @@ function ScanPage() {
           </div>
           {!questionnaireComplete ? (
             <p className="mt-2 text-xs font-semibold text-warningOrange">
-              Complete questionnaire below to enable analysis.
+              Complete context form below to enable analysis.
+            </p>
+          ) : null}
+          {awaitingFollowup ? (
+            <p className="mt-2 text-xs font-semibold text-medicalBlue dark:text-blue-300">
+              Step 1 complete. Submit follow-up answers below for final prediction.
             </p>
           ) : null}
         </Card>
@@ -477,10 +667,73 @@ function ScanPage() {
         </Card>
       ) : null}
 
+      {awaitingFollowup ? (
+        <Card>
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                Follow-up Questions (Step 2 of 2)
+              </h3>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                These questions are generated from your image + context. Answer all to get final prediction.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {followupItems.map((item, index) => (
+                <div key={item.key} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    {index + 1}. {item.question}
+                  </p>
+                  {item.key === "duration_days" ? (
+                    <input
+                      type="number"
+                      min="0"
+                      value={followupAnswers[item.key] || ""}
+                      onChange={(event) => handleFollowupAnswer(item.key, event.target.value)}
+                      className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-medicalBlue focus:ring-2 focus:ring-blue-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+                      placeholder="Enter number of days"
+                    />
+                  ) : (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {["Yes", "No", "Not sure"].map((option) => {
+                        const active = followupAnswers[item.key] === option;
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => handleFollowupAnswer(item.key, option)}
+                            className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                              active
+                                ? "bg-blue-100 text-medicalBlue dark:bg-blue-900/30 dark:text-blue-200"
+                                : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                            }`}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <Button
+              onClick={submitFollowupForFinalPrediction}
+              loading={isAnalyzing}
+              disabled={!followupComplete}
+            >
+              Submit Follow-up Answers and Get Final Prediction
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
       {isAnalyzing ? (
         <>
           <UploadProgress value={uploadProgress} />
-          <Loader subtitle="Running cancer risk model and generating medical explanation." />
+          <Loader subtitle="Running image analysis with symptom context." />
         </>
       ) : null}
 
