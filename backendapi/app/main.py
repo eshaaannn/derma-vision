@@ -19,6 +19,7 @@ from .intelligence import (
     build_confidence,
     build_followup_questions,
     build_risk_message,
+    normalize_followup_answers,
     validate_context,
 )
 from .model import ModelService, map_risk_level
@@ -184,6 +185,8 @@ async def predict_enhanced(
         validated_context = validate_context(context_payload)
     except ValueError as exc:
         raise AppError("INVALID_CONTEXT", str(exc), 422)
+    normalized_followup = normalize_followup_answers(followup_payload)
+    merged_context = {**validated_context, **normalized_followup}
 
     image_scores: list[float] = []
     image_labels: list[str] = []
@@ -252,16 +255,27 @@ async def predict_enhanced(
             ),
         )
 
-    context_result = apply_context_weighting(float(aggregation["aggregate_score"]), validated_context)
+    top_label = Counter(image_labels).most_common(1)[0][0]
+    context_result = apply_context_weighting(
+        float(aggregation["aggregate_score"]),
+        merged_context,
+        top_label=top_label,
+    )
     final_score = float(context_result["score"])
     messaging = build_risk_message(final_score)
-    top_label = Counter(image_labels).most_common(1)[0][0]
-    followup_questions = build_followup_questions(validated_context, final_score)
+    followup_question_items = build_followup_questions(
+        merged_context,
+        final_score,
+        top_label=top_label,
+        followup_answers=normalized_followup,
+    )
+    followup_questions = [question for _, question in followup_question_items]
     confidence = build_confidence(
         image_count=len(image_scores),
         spread=float(aggregation["spread"]),
-        context=validated_context,
+        context=merged_context,
         has_model_explainability=bool(model_explainability_chunks),
+        top_label=top_label,
     )
 
     contributing_factors = list(context_result["contributing_factors"])
@@ -281,9 +295,9 @@ async def predict_enhanced(
             "individual_scores": [round(score, 4) for score in image_scores],
             "aggregate_score": round(float(aggregation["aggregate_score"]), 4),
             "score_spread": round(float(aggregation["spread"]), 4),
-            "context": validated_context,
+            "context": merged_context,
             "context_adjustment": round(float(context_result["context_adjustment"]), 4),
-            "followup_answers": followup_payload,
+            "followup_answers": normalized_followup,
             "quality_metrics": quality_metrics,
             "filenames": filenames,
             "content_types": content_types,
@@ -309,8 +323,9 @@ async def predict_enhanced(
         disclaimer=DISCLAIMER,
         created_at=created_at,
         followup=FollowupResponse(
-            requires_followup=bool(followup_questions),
+            requires_followup=bool(followup_question_items),
             questions=followup_questions,
+            items=[{"key": key, "question": question} for key, question in followup_question_items],
         ),
         details=EnhancedDetails(
             image_count=len(image_scores),

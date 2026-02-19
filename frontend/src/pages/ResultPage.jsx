@@ -10,11 +10,36 @@ import TipsAccordion from "../components/result/TipsAccordion";
 import { getLastResult } from "../utils/storage";
 
 const questionLabels = {
+  ageBand: "Age group",
   lesionDuration: "How long noticed",
   recentChanges: "Recent change type",
-  lesionSymptoms: "Itch/bleed/hurt/scabs",
+  itching: "Persistent itching",
+  bleeding: "Bleeding/crusting",
+  pain: "Pain/tenderness",
+  scaling: "Flaky/scaly skin",
+  ringShape: "Ring-shaped lesion",
+  spreading: "Spreading nearby",
   irregularBorder: "Irregular border",
   colorPattern: "Uniform vs multiple colors",
+  primaryConcern: "Primary concern",
+  contextText: "Extra text context",
+  family_history_skin_cancer: "Family history skin cancer",
+  previous_skin_cancer: "Previous skin cancer",
+  severe_sunburn_history: "Severe sunburn history",
+  immunosuppression: "Immunosuppression",
+  non_healing: "Non-healing lesion",
+  new_vs_old_lesion: "New/different lesion",
+  contact_history: "Contact/trauma history",
+  pet_exposure: "Pet exposure",
+  sweating_occlusion: "Sweating/tight clothing trigger",
+  steroid_cream_use: "Steroid cream worsened lesion",
+  immune_risk: "Diabetes/immune risk",
+  fever: "Fever/chills",
+  pus: "Pus/yellow crust",
+  trigger_products: "New product trigger",
+  allergy_history: "Allergy/eczema history",
+  photosensitivity: "Sunlight worsening",
+  night_itch: "Night itching",
 };
 
 function probabilityToPercent(value) {
@@ -86,6 +111,22 @@ function ResultPage() {
             "",
             "Questionnaire Answers:",
             ...Object.entries(result.questionnaireAnswers).map(([key, value]) =>
+              `${questionLabels[key] || key}: ${value || "N/A"}`
+            ),
+          ]
+        : []),
+      ...(result.followupQuestions?.length
+        ? [
+            "",
+            "Suggested Follow-up Questions:",
+            ...result.followupQuestions.map((question, index) => `${index + 1}. ${question}`),
+          ]
+        : []),
+      ...(result.followupAnswers
+        ? [
+            "",
+            "Follow-up Answers:",
+            ...Object.entries(result.followupAnswers).map(([key, value]) =>
               `${questionLabels[key] || key}: ${value || "N/A"}`
             ),
           ]
@@ -238,6 +279,38 @@ function ResultPage() {
           </p>
         )}
       </Card>
+
+      {result.followupQuestions?.length ? (
+        <Card>
+          <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+            Suggested Follow-up Questions
+          </h3>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            Based on image pattern + submitted context, these questions should be answered next:
+          </p>
+          <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-slate-200">
+            {result.followupQuestions.map((question) => (
+              <li key={question}>{question}</li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
+      {result.followupAnswers ? (
+        <Card>
+          <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Follow-up Answers Used</h3>
+          <div className="mt-3 grid gap-2 rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-700 md:grid-cols-2">
+            {Object.entries(result.followupAnswers).map(([key, value]) => (
+              <p key={key} className="text-slate-600 dark:text-slate-300">
+                <span className="font-semibold text-slate-700 dark:text-slate-100">
+                  {questionLabels[key] || key}:
+                </span>{" "}
+                {value || "N/A"}
+              </p>
+            ))}
+          </div>
+        </Card>
+      ) : null}
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Card>

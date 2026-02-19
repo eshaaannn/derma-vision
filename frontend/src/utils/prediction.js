@@ -1,4 +1,5 @@
 export function normalizePredictionResponse(data) {
+  const status = data?.status || "success";
   const riskScoreRaw = Number(
     data?.risk_score ?? data?.final_risk_score ?? data?.cancer_probability
   );
@@ -9,7 +10,9 @@ export function normalizePredictionResponse(data) {
     data?.confidence ?? data?.confidence_score ?? data?.model_confidence
   );
   const confidence = Number.isFinite(confidenceRaw)
-    ? confidenceRaw
+    ? confidenceRaw <= 1
+      ? confidenceRaw * 100
+      : confidenceRaw
     : hasRiskScore
       ? riskScore * 100
       : 0;
@@ -56,12 +59,16 @@ export function normalizePredictionResponse(data) {
       ].filter(Boolean);
 
   return {
+    status,
     confidence: Number.isFinite(confidence) ? confidence : 0,
     predictedClass,
     explanation,
     riskLevel,
     probabilities: probabilityMap,
     tips,
+    followupQuestions: Array.isArray(data?.followup?.questions) ? data.followup.questions : [],
+    followupItems: Array.isArray(data?.followup?.items) ? data.followup.items : [],
+    backendDetails: data?.details || null,
   };
 }
 
