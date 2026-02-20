@@ -58,6 +58,17 @@ export function normalizePredictionResponse(data) {
         "Schedule periodic skin checks with a certified dermatologist.",
       ].filter(Boolean);
 
+  const followupQuestions = Array.isArray(data?.followup?.questions) ? data.followup.questions : [];
+  const followupItems = Array.isArray(data?.followup?.items) ? data.followup.items : [];
+  const normalizedFollowupItems = followupItems.length
+    ? followupItems
+    : status !== "success"
+      ? followupQuestions.map((question, index) => ({
+        key: `followup_${index + 1}`,
+        question,
+      }))
+      : [];
+
   return {
     status,
     confidence: Number.isFinite(confidence) ? confidence : 0,
@@ -66,8 +77,8 @@ export function normalizePredictionResponse(data) {
     riskLevel,
     probabilities: probabilityMap,
     tips,
-    followupQuestions: Array.isArray(data?.followup?.questions) ? data.followup.questions : [],
-    followupItems: Array.isArray(data?.followup?.items) ? data.followup.items : [],
+    followupQuestions,
+    followupItems: normalizedFollowupItems,
     backendDetails: data?.details || null,
   };
 }

@@ -22,6 +22,16 @@ import {
   isQuestionnaireComplete,
 } from "../utils/questionnaire";
 
+const MAX_IMAGE_COUNT = Number(import.meta.env.VITE_MAX_IMAGE_COUNT || 4);
+const INPUT_ERROR_CODES = new Set([
+  "TOO_MANY_IMAGES",
+  "INVALID_IMAGE",
+  "UNSUPPORTED_IMAGE",
+  "IMAGE_TOO_LARGE",
+  "INVALID_CONTEXT",
+  "MISSING_IMAGE",
+]);
+
 function generateDemoPrediction() {
   const confidence = Math.floor(Math.random() * 45) + 52;
   const riskLevel = confidence > 78 ? "High" : confidence > 60 ? "Medium" : "Low";
@@ -201,12 +211,24 @@ function ScanPage() {
   const handleIncomingFiles = (files) => {
     const validFiles = files.filter((file) => file.type.startsWith("image/"));
     if (!validFiles.length) return;
+    const remainingSlots = Math.max(0, MAX_IMAGE_COUNT - images.length);
+    if (remainingSlots <= 0) {
+      const maxMessage = `Maximum ${MAX_IMAGE_COUNT} images allowed. Remove one to add a new image.`;
+      setError(maxMessage);
+      showToast({
+        type: "warning",
+        title: "Image Limit Reached",
+        message: maxMessage,
+      });
+      return;
+    }
+    const acceptedFiles = validFiles.slice(0, remainingSlots);
 
     setError("");
     setCanUseDemo(false);
     clearFollowupState();
 
-    const nextImages = validFiles.map((file) => ({
+    const nextImages = acceptedFiles.map((file) => ({
       id: createId("scan_image"),
       file,
       previewUrl: URL.createObjectURL(file),
@@ -220,6 +242,14 @@ function ScanPage() {
     setCropTargetId(nextImages[0].id);
     setSourceImageUrl(nextImages[0].previewUrl);
     setShowCropper(true);
+
+    if (acceptedFiles.length < validFiles.length) {
+      showToast({
+        type: "warning",
+        title: "Extra Images Skipped",
+        message: `Only ${MAX_IMAGE_COUNT} images are supported per analysis.`,
+      });
+    }
   };
 
   const handleCameraCapture = (dataUrl) => {
@@ -341,6 +371,10 @@ function ScanPage() {
       setError("Please upload at least one image before analysis.");
       return;
     }
+    if (images.length > MAX_IMAGE_COUNT) {
+      setError(`Maximum ${MAX_IMAGE_COUNT} images are allowed.`);
+      return;
+    }
     if (awaitingFollowup) {
       setError("Please answer follow-up questions to get final prediction.");
       return;
@@ -350,7 +384,7 @@ function ScanPage() {
       showToast({
         type: "warning",
         title: "Context Incomplete",
-        message: "Answer all questionnaire fields to continue.",
+        message: "Answer required context fields to continue.",
       });
       return;
     }
@@ -376,9 +410,7 @@ function ScanPage() {
       );
 
       if (response?.status && response.status !== "success") {
-        const followups = Array.isArray(response?.followup?.questions)
-          ? response.followup.questions
-          : [];
+        const followups = normalizePredictionResponse(response).followupQuestions || [];
         const fallbackMessage = "Analysis could not complete. Please retake clear images and try again.";
         setError(response?.message || fallbackMessage);
         if (followups.length) {
@@ -393,7 +425,9 @@ function ScanPage() {
 
       const normalized = normalizePredictionResponse(response);
       const followupFromApi = Array.isArray(normalized.followupItems)
-        ? normalized.followupItems.filter((item) => item?.key && item?.question).slice(0, 6)
+        ? normalized.followupItems
+            .filter((item) => item?.key && item?.question && !String(item.key).startsWith("followup_"))
+            .slice(0, 6)
         : [];
 
       if (followupFromApi.length) {
@@ -429,12 +463,14 @@ function ScanPage() {
         null
       );
     } catch (apiError) {
-      setError("Could not reach prediction API. You can retry or continue with demo data.");
-      setCanUseDemo(true);
+      const inputError = Boolean(apiError?.code && INPUT_ERROR_CODES.has(apiError.code));
+      const message = apiError?.message || "Could not reach prediction API. You can retry or continue with demo data.";
+      setError(message);
+      setCanUseDemo(!inputError);
       showToast({
-        type: "error",
+        type: inputError ? "warning" : "error",
         title: "Prediction Failed",
-        message: apiError?.message || "API error while analyzing images.",
+        message,
       });
     } finally {
       setIsAnalyzing(false);
@@ -493,7 +529,7 @@ function ScanPage() {
       );
       clearFollowupState();
     } catch (apiError) {
-      setError("Could not process follow-up answers right now. Please retry.");
+      setError(apiError?.message || "Could not process follow-up answers right now. Please retry.");
       showToast({
         type: "error",
         title: "Final Prediction Failed",
@@ -564,7 +600,11 @@ function ScanPage() {
         </div>
 
         {activeMode === "upload" ? (
-          <DropzoneUpload onFilesSelect={handleIncomingFiles} />
+          <DropzoneUpload
+            onFilesSelect={handleIncomingFiles}
+            maxImages={MAX_IMAGE_COUNT}
+            currentCount={images.length}
+          />
         ) : (
           <CameraCapture onCapture={handleCameraCapture} />
         )}
@@ -646,7 +686,7 @@ function ScanPage() {
           </div>
           {!questionnaireComplete ? (
             <p className="mt-2 text-xs font-semibold text-warningOrange">
-              Complete context form below to enable analysis.
+              Complete required context fields below to enable analysis.
             </p>
           ) : null}
           {awaitingFollowup ? (

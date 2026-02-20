@@ -1,7 +1,7 @@
 const riskStyles = {
-  Low: "bg-green-100 text-green-700 ring-green-200 dark:bg-green-900/30 dark:text-green-200",
+  Low: "bg-blue-50 text-blue-800 ring-blue-200 dark:bg-blue-900/35 dark:text-blue-100",
   Medium:
-    "bg-orange-100 text-orange-700 ring-orange-200 dark:bg-orange-900/30 dark:text-orange-200",
+    "bg-blue-100 text-medicalBlue ring-blue-300 dark:bg-blue-900/45 dark:text-blue-100",
   High: "bg-red-100 text-red-700 ring-red-200 dark:bg-red-900/30 dark:text-red-200",
 };
 

@@ -5,8 +5,8 @@ import BackButton from "../ui/BackButton";
 function AuthShell({ title, subtitle, children, footer }) {
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-softBg px-4 py-10 dark:bg-slate-950">
-      <div className="pointer-events-none absolute -left-10 -top-12 h-56 w-56 rounded-full bg-blue-200/70 blur-3xl dark:bg-blue-900/30" />
-      <div className="pointer-events-none absolute bottom-0 right-0 h-60 w-60 rounded-full bg-emerald-200/70 blur-3xl dark:bg-emerald-900/30" />
+      <div className="pointer-events-none absolute -left-10 -top-12 h-56 w-56 rounded-full bg-blue-200/70 blur-3xl dark:bg-blue-900/35" />
+      <div className="pointer-events-none absolute bottom-0 right-0 h-60 w-60 rounded-full bg-blue-300/65 blur-3xl dark:bg-blue-800/35" />
 
       <motion.div
         initial={{ opacity: 0, y: 12 }}

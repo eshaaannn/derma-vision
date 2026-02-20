@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
 import { useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import AppLayout from "./components/layout/AppLayout";
@@ -12,6 +13,7 @@ import HistoryPage from "./pages/HistoryPage";
 import ProfilePage from "./pages/ProfilePage";
 import NotFoundPage from "./pages/NotFoundPage";
 import { LOGO_CANDIDATES, setFavicon } from "./utils/brand";
+import IntroSplash from "./components/ui/IntroSplash";
 
 function HomeRedirect() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -20,6 +22,8 @@ function HomeRedirect() {
 }
 
 function App() {
+  const [showIntro, setShowIntro] = useState(true);
+
   useEffect(() => {
     let mounted = true;
 
@@ -47,28 +51,39 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setShowIntro(false);
+    }, 3600);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
-    <Routes>
-      <Route path="/" element={<HomeRedirect />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/signup" element={<SignupPage />} />
+    <>
+      <AnimatePresence>{showIntro ? <IntroSplash /> : null}</AnimatePresence>
 
-      <Route
-        element={
-          <ProtectedRoute>
-            <AppLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/scan" element={<ScanPage />} />
-        <Route path="/result" element={<ResultPage />} />
-        <Route path="/history" element={<HistoryPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-      </Route>
+      <Routes>
+        <Route path="/" element={<HomeRedirect />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
 
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+        <Route
+          element={
+            <ProtectedRoute>
+              <AppLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/scan" element={<ScanPage />} />
+          <Route path="/result" element={<ResultPage />} />
+          <Route path="/history" element={<HistoryPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+        </Route>
+
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </>
   );
 }
 

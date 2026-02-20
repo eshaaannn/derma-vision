@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="230 260 565 470" role="img" aria-label="Derma Vision Logo">
+  <defs>
+    <linearGradient id="outerBlue" x1="256" y1="280" x2="768" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1F56E6" />
+      <stop offset="100%" stop-color="#123DBB" />
+    </linearGradient>
+    <radialGradient id="coreDark" cx="45%" cy="40%" r="70%">
+      <stop offset="0%" stop-color="#1A2E4D" />
+      <stop offset="100%" stop-color="#0F2038" />
+    </radialGradient>
+  </defs>
+
+  <path
+    d="M512 305c-142 0-230 96-230 215 0 110 90 170 230 170s230-60 230-170c0-119-88-215-230-215z"
+    fill="url(#outerBlue)"
+  />
+  <circle cx="512" cy="355" r="23" fill="#FFFFFF" />
+  <ellipse cx="512" cy="515" rx="137" ry="109" fill="#FFFFFF" />
+  <ellipse cx="512" cy="515" rx="81" ry="66" fill="#76C0E8" />
+  <circle cx="512" cy="515" r="35" fill="url(#coreDark)" />
+</svg>

@@ -10,17 +10,16 @@ export const QUESTIONNAIRE_DEFAULTS = {
   spreading: "",
   irregularBorder: "",
   colorPattern: "",
+  familyHistorySkinCancer: "",
+  previousSkinCancer: "",
   primaryConcern: "",
   contextText: "",
 };
 
+const REQUIRED_FIELDS = ["ageBand", "lesionDuration", "recentChanges", "primaryConcern"];
+
 export function isQuestionnaireComplete(answers) {
-  return Object.keys(QUESTIONNAIRE_DEFAULTS).every((key) => {
-    if (key === "contextText") {
-      return Boolean((answers?.[key] || "").trim());
-    }
-    return Boolean(answers?.[key]);
-  });
+  return REQUIRED_FIELDS.every((key) => Boolean(answers?.[key]));
 }
 
 export function evaluateCancerQuestionnaire(answers) {
@@ -76,6 +75,20 @@ export function evaluateCancerQuestionnaire(answers) {
   if (answers.colorPattern === "Multiple colors") {
     score += 3;
     reasons.push("Multiple shades in lesion");
+  }
+
+  if (answers.familyHistorySkinCancer === "Yes") {
+    score += 2;
+    reasons.push("Family history of skin cancer");
+  } else if (answers.familyHistorySkinCancer === "Not sure") {
+    score += 1;
+  }
+
+  if (answers.previousSkinCancer === "Yes") {
+    score += 3;
+    reasons.push("Previous skin cancer history");
+  } else if (answers.previousSkinCancer === "Not sure") {
+    score += 1;
   }
 
   if (answers.ringShape === "Yes") {
@@ -199,6 +212,16 @@ export function buildEnhancedContext(answers) {
     context.multi_color = true;
   } else if (answers.colorPattern === "Uniform") {
     context.multi_color = false;
+  }
+
+  const familyHistorySkinCancer = mapYesNo(answers.familyHistorySkinCancer);
+  if (typeof familyHistorySkinCancer === "boolean") {
+    context.family_history_skin_cancer = familyHistorySkinCancer;
+  }
+
+  const previousSkinCancer = mapYesNo(answers.previousSkinCancer);
+  if (typeof previousSkinCancer === "boolean") {
+    context.previous_skin_cancer = previousSkinCancer;
   }
 
   const primaryConcern = PRIMARY_CONCERN_MAP[answers.primaryConcern];
