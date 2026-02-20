@@ -13,6 +13,7 @@ class Prediction:
     risk_score: float
     top_label: str
     explainability: dict[str, Any] | None = None
+    model_confidence: float | None = None
 
 
 class ModelService:
@@ -49,7 +50,19 @@ class ModelService:
         explainability = result.get("explainability")
         if explainability is not None and not isinstance(explainability, dict):
             explainability = {"raw": explainability}
-        return Prediction(risk_score=risk_score, top_label=top_label, explainability=explainability)
+        confidence_raw = result.get("model_confidence", result.get("confidence"))
+        try:
+            model_confidence = float(confidence_raw) if confidence_raw is not None else None
+        except (TypeError, ValueError):
+            model_confidence = None
+        if model_confidence is not None:
+            model_confidence = max(0.0, min(1.0, model_confidence))
+        return Prediction(
+            risk_score=risk_score,
+            top_label=top_label,
+            explainability=explainability,
+            model_confidence=model_confidence,
+        )
 
 
 def map_risk_level(score: float) -> str:

@@ -45,7 +45,7 @@ function LoginPage() {
       await login(values);
       showToast({
         type: "success",
-        title: "Welcome back",
+        title: "Signed in",
         message: "You have logged in securely.",
       });
       navigate(redirectTo, { replace: true });

@@ -44,11 +44,6 @@ function HistoryTimeline({ scans = [] }) {
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                   {scan.images?.length || 1} image{(scan.images?.length || 1) > 1 ? "s" : ""}
                 </span>
-                {scan.questionnaireAssessment?.presence ? (
-                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
-                    Questionnaire: {scan.questionnaireAssessment.presence}
-                  </span>
-                ) : null}
               </div>
             </div>
           </div>
