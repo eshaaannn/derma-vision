@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
@@ -16,7 +17,6 @@ from .errors import AppError, add_error_handlers
 from .intelligence import (
     aggregate_scores,
     apply_context_weighting,
-    build_confidence,
     build_followup_questions,
     build_risk_message,
     normalize_followup_answers,
@@ -34,6 +34,7 @@ from .schemas import (
 from .validation import analyze_image_quality, validate_image
 
 DISCLAIMER = "This is a screening result, not a diagnosis. Please consult a dermatologist."
+MISSING_CONTEXT_MESSAGE = "Please upload an image and provide clinical context before proceeding."
 
 app = FastAPI(title="Derma Vision API", version="0.1.0")
 add_error_handlers(app)
@@ -185,11 +186,14 @@ async def predict_enhanced(
         validated_context = validate_context(context_payload)
     except ValueError as exc:
         raise AppError("INVALID_CONTEXT", str(exc), 422)
+    if not validated_context.get("context_text"):
+        raise AppError("INVALID_CONTEXT", MISSING_CONTEXT_MESSAGE, 422)
     normalized_followup = normalize_followup_answers(followup_payload)
     merged_context = {**validated_context, **normalized_followup}
 
     image_scores: list[float] = []
     image_labels: list[str] = []
+    image_model_confidences: list[float] = []
     model_explainability_chunks: list[dict] = []
     quality_metrics: list[dict] = []
     filenames: list[str] = []
@@ -228,6 +232,12 @@ async def predict_enhanced(
         quality_metrics.append(metrics)
         image_scores.append(prediction.risk_score)
         image_labels.append(prediction.top_label)
+        if (
+            prediction.model_confidence is not None
+            and isinstance(prediction.model_confidence, (int, float))
+            and math.isfinite(float(prediction.model_confidence))
+        ):
+            image_model_confidences.append(float(prediction.model_confidence))
         if prediction.explainability:
             model_explainability_chunks.append(prediction.explainability)
         filenames.append(upload.filename or "unknown")
@@ -276,13 +286,10 @@ async def predict_enhanced(
         followup_answers=normalized_followup,
     )
     followup_questions = [question for _, question in followup_question_items]
-    confidence = build_confidence(
-        image_count=len(image_scores),
-        spread=float(aggregation["spread"]),
-        context=merged_context,
-        has_model_explainability=bool(model_explainability_chunks),
-        top_label=top_label,
-    )
+    if image_model_confidences:
+        confidence = round(sum(image_model_confidences) / len(image_model_confidences), 2)
+    else:
+        confidence = round(min(0.97, max(0.5, final_score)), 2)
 
     contributing_factors = list(context_result["contributing_factors"])
     if len(image_scores) > 1:
@@ -304,6 +311,7 @@ async def predict_enhanced(
             "context": merged_context,
             "context_adjustment": round(float(context_result["context_adjustment"]), 4),
             "followup_answers": normalized_followup,
+            "model_confidences": [round(value, 4) for value in image_model_confidences],
             "quality_metrics": quality_metrics,
             "filenames": filenames,
             "content_types": content_types,

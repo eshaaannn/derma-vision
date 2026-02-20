@@ -6,48 +6,143 @@ import Button from "../components/ui/Button";
 import Tooltip from "../components/ui/Tooltip";
 import RiskBadge from "../components/result/RiskBadge";
 import ResultConfidenceChart from "../components/result/ResultConfidenceChart";
-import TipsAccordion from "../components/result/TipsAccordion";
 import { getLastResult } from "../utils/storage";
 
 const questionLabels = {
-  ageBand: "Age group",
-  lesionDuration: "How long noticed",
-  recentChanges: "Recent change type",
+  contextText: "Clinical context",
+  duration_days: "How many days",
+  rapid_growth: "Rapid growth",
+  bleeding: "Bleeding or crusting",
   itching: "Persistent itching",
-  bleeding: "Bleeding/crusting",
-  pain: "Pain/tenderness",
-  scaling: "Flaky/scaly skin",
-  ringShape: "Ring-shaped lesion",
-  spreading: "Spreading nearby",
-  irregularBorder: "Irregular border",
-  colorPattern: "Uniform vs multiple colors",
-  familyHistorySkinCancer: "Family history of skin cancer",
-  previousSkinCancer: "Previous skin cancer diagnosis",
-  primaryConcern: "Primary concern",
-  contextText: "Extra text context",
-  family_history_skin_cancer: "Family history skin cancer",
+  pain: "Pain or tenderness",
+  spreading: "Spreading pattern",
+  ring_shape: "Ring-shaped lesion",
+  scaling: "Scaling/flaky skin",
+  irregular_border: "Irregular border",
+  multi_color: "Multiple color tones",
+  family_history_skin_cancer: "Family history of skin cancer",
   previous_skin_cancer: "Previous skin cancer",
   severe_sunburn_history: "Severe sunburn history",
   immunosuppression: "Immunosuppression",
   non_healing: "Non-healing lesion",
-  new_vs_old_lesion: "New/different lesion",
-  contact_history: "Contact/trauma history",
-  pet_exposure: "Pet exposure",
-  sweating_occlusion: "Sweating/tight clothing trigger",
-  steroid_cream_use: "Steroid cream worsened lesion",
-  immune_risk: "Diabetes/immune risk",
+  new_vs_old_lesion: "New or different lesion",
+  contact_history: "Relevant contact history",
+  pet_exposure: "Pet/animal exposure",
+  sweating_occlusion: "Sweat or occlusion trigger",
+  steroid_cream_use: "Steroid cream worsening",
+  immune_risk: "Diabetes or immune risk",
   fever: "Fever/chills",
   pus: "Pus/yellow crust",
-  trigger_products: "New product trigger",
+  trigger_products: "Product trigger",
   allergy_history: "Allergy/eczema history",
   photosensitivity: "Sunlight worsening",
-  night_itch: "Night itching",
+  night_itch: "Night-time itching",
 };
 
 function probabilityToPercent(value) {
   const num = Number(value) || 0;
   if (num <= 1) return Math.round(num * 100);
   return Math.round(Math.min(num, 100));
+}
+
+function resolveHeatmapSrc(modelExplainability) {
+  const candidate =
+    modelExplainability?.heatmap || modelExplainability?.gradcam || modelExplainability?.cam || null;
+
+  if (!candidate || typeof candidate !== "string") {
+    return null;
+  }
+
+  const trimmed = candidate.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.startsWith("data:image")) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  return `data:image/png;base64,${trimmed}`;
+}
+
+function inferVisualFeatures(result) {
+  const label = String(result?.predictedClass || result?.topLabel || "").toLowerCase();
+  const contextText = String(result?.contextText || result?.contextPayload?.context_text || "").toLowerCase();
+  const patternReason = String(result?.modelExplainability?.visual_pattern?.reason || "").toLowerCase();
+  const contributingFactors = Array.isArray(result?.backendDetails?.contributing_factors)
+    ? result.backendDetails.contributing_factors.join(" ").toLowerCase()
+    : "";
+  const features = new Set();
+
+  if (label.includes("cancer") || label.includes("melan") || label.includes("suspicious")) {
+    features.add("asymmetry cues");
+    features.add("border irregularity");
+    features.add("pigmentation variation");
+  }
+
+  if (label.includes("fung") || label.includes("tinea") || label.includes("ringworm")) {
+    features.add("annular pattern tendency");
+    features.add("surface scaling texture");
+    features.add("peripheral spread pattern");
+  }
+
+  if (label.includes("bacter") || label.includes("impetigo") || label.includes("follic")) {
+    features.add("localized inflammatory texture");
+    features.add("surface crusting cues");
+  }
+
+  if (label.includes("inflamm") || label.includes("eczema") || label.includes("rash")) {
+    features.add("diffuse inflammatory pattern");
+    features.add("surface irritation markers");
+  }
+
+  if (contextText.includes("irregular") || contextText.includes("uneven")) {
+    features.add("border irregularity");
+  }
+  if (contextText.includes("multiple color") || contextText.includes("variegated")) {
+    features.add("pigmentation variation");
+  }
+  if (contextText.includes("itch") || contextText.includes("scal")) {
+    features.add("surface scaling texture");
+  }
+
+  if (patternReason.includes("high_contrast") || patternReason.includes("dark")) {
+    features.add("high-contrast pigmentation");
+  }
+  if (patternReason.includes("annular") || patternReason.includes("ring")) {
+    features.add("annular pattern tendency");
+  }
+  if (contributingFactors.includes("irregular border")) {
+    features.add("border irregularity");
+  }
+  if (contributingFactors.includes("multiple colors")) {
+    features.add("pigmentation variation");
+  }
+  if (contributingFactors.includes("ring-shaped")) {
+    features.add("annular pattern tendency");
+  }
+
+  if (!features.size) {
+    features.add("lesion boundary pattern");
+    features.add("pigmentation distribution");
+    features.add("texture contrast");
+  }
+
+  return Array.from(features).slice(0, 3);
+}
+
+function buildProbabilitySummary(result) {
+  const riskLevel = String(result?.riskLevel || "Low");
+  const readableRisk = riskLevel.toLowerCase() === "medium" ? "moderate" : riskLevel.toLowerCase();
+  const features = inferVisualFeatures(result);
+
+  return `This result indicates a ${readableRisk} probability based on image pattern analysis such as ${features.join(
+    ", "
+  )}. This is a probability-based estimation and not a confirmed diagnosis.`;
 }
 
 function ResultPage() {
@@ -75,7 +170,8 @@ function ResultPage() {
     }
   }, [activeImageIndex, images.length]);
 
-  const activeImage = images[activeImageIndex] || images[0];
+  const activeImage = images[activeImageIndex] || images[0] || null;
+  const heatmapSrc = useMemo(() => resolveHeatmapSrc(result?.modelExplainability), [result?.modelExplainability]);
 
   const probabilities = useMemo(() => {
     const pairs = Object.entries(result?.probabilities || {});
@@ -85,58 +181,46 @@ function ResultPage() {
     }));
   }, [result?.probabilities]);
 
+  const probabilitySummary = useMemo(() => buildProbabilitySummary(result), [result]);
+
   const downloadReport = () => {
     if (!result) return;
 
     const payload = [
-      "Derma Vision - AI Skin Analysis Report",
+      "DermaVision - AI Skin Screening Report",
       `Generated At: ${new Date().toLocaleString()}`,
       `Images Analyzed: ${images.length || 1}`,
       `Risk Level: ${result.riskLevel}`,
       `Confidence: ${result.confidence}%`,
       `Predicted Class: ${result.predictedClass}`,
       "",
-      "Medical Explanation:",
-      result.explanation,
+      "Probability-Based Medical Explanation:",
+      probabilitySummary,
+      result.explanation ? `Model Output: ${result.explanation}` : null,
       "",
-      "Questionnaire-Based Inference:",
-      `Estimated Presence: ${result.questionnaireAssessment?.presence || "N/A"}`,
-      `Risk Level: ${result.questionnaireAssessment?.level || "N/A"}`,
-      `Questionnaire Score: ${
-        result.questionnaireAssessment?.score !== undefined
-          ? result.questionnaireAssessment.score
-          : "N/A"
-      }`,
-      `Inference Note: ${result.questionnaireAssessment?.message || "N/A"}`,
-      ...(result.questionnaireAnswers
-        ? [
-            "",
-            "Questionnaire Answers:",
-            ...Object.entries(result.questionnaireAnswers).map(([key, value]) =>
-              `${questionLabels[key] || key}: ${value || "N/A"}`
-            ),
-          ]
-        : []),
+      "Clinical Context:",
+      result.contextText || result.contextPayload?.context_text || "Not provided",
       ...(result.followupQuestions?.length
         ? [
             "",
-            "Suggested Follow-up Questions:",
+            "Follow-up Questions Asked:",
             ...result.followupQuestions.map((question, index) => `${index + 1}. ${question}`),
           ]
         : []),
       ...(result.followupAnswers
         ? [
             "",
-            "Follow-up Answers:",
-            ...Object.entries(result.followupAnswers).map(([key, value]) =>
-              `${questionLabels[key] || key}: ${value || "N/A"}`
+            "Follow-up Answers Used:",
+            ...Object.entries(result.followupAnswers).map(
+              ([key, value]) => `${questionLabels[key] || key}: ${value || "N/A"}`
             ),
           ]
         : []),
       "",
-      "Health Tips:",
-      ...(result.tips || []).map((tip, index) => `${index + 1}. ${tip}`),
-    ].join("\n");
+      "Disclaimer: This platform provides AI-based probability predictions and does not confirm or diagnose cancer.",
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     const blob = new Blob([payload], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -180,12 +264,12 @@ function ResultPage() {
               Detected class: <span className="font-semibold">{result.predictedClass}</span>
             </p>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              {images.length} image{images.length > 1 ? "s" : ""} analyzed for better clarity.
+              {images.length} image{images.length > 1 ? "s" : ""} analyzed.
             </p>
             <div className="mt-4 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
               <div className="mb-2 flex items-center gap-2">
                 <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Confidence Score</p>
-                <Tooltip content="AI confidence for predicted class. Clinical confirmation is required.">
+                <Tooltip content="Predicted-class probability from model inference (softmax-based).">
                   <span className="inline-flex h-5 w-5 cursor-help items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                     i
                   </span>
@@ -195,11 +279,17 @@ function ResultPage() {
             </div>
           </div>
           <div className="space-y-3">
-            <img
-              src={activeImage || result.image}
-              alt="Analyzed lesion"
-              className="aspect-square w-full rounded-xl border border-slate-200 object-cover dark:border-slate-700"
-            />
+            {activeImage ? (
+              <img
+                src={activeImage}
+                alt="Analyzed lesion"
+                className="aspect-square w-full rounded-xl border border-slate-200 object-cover dark:border-slate-700"
+              />
+            ) : (
+              <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                Source image unavailable for this saved scan
+              </div>
+            )}
             {images.length > 1 ? (
               <div className="grid grid-cols-4 gap-2">
                 {images.map((image, index) => (
@@ -226,69 +316,17 @@ function ResultPage() {
       </Card>
 
       <Card>
-        <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-          Measured Questionnaire Outcome
-        </h3>
-        {result.questionnaireAssessment ? (
-          <div className="mt-3 space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-bold ${
-                  result.questionnaireAssessment.level === "High"
-                    ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200"
-                    : result.questionnaireAssessment.level === "Moderate"
-                      ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-200"
-                      : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-200"
-                }`}
-              >
-                {result.questionnaireAssessment.presence}
-              </span>
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                Score: {result.questionnaireAssessment.score}
-              </span>
-              {result.questionnaireAssessment.answeredAt ? (
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  Assessed: {new Date(result.questionnaireAssessment.answeredAt).toLocaleString()}
-                </span>
-              ) : null}
-            </div>
-            <p className="text-sm text-slate-700 dark:text-slate-200">
-              {result.questionnaireAssessment.message}
-            </p>
-            {result.questionnaireAssessment.reasons?.length ? (
-              <ul className="list-disc space-y-0.5 pl-5 text-xs text-slate-600 dark:text-slate-300">
-                {result.questionnaireAssessment.reasons.map((reason) => (
-                  <li key={reason}>{reason}</li>
-                ))}
-              </ul>
-            ) : null}
-            {result.questionnaireAnswers ? (
-              <div className="grid gap-2 rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-700 md:grid-cols-2">
-                {Object.entries(result.questionnaireAnswers).map(([key, value]) => (
-                  <p key={key} className="text-slate-600 dark:text-slate-300">
-                    <span className="font-semibold text-slate-700 dark:text-slate-100">
-                      {questionLabels[key] || key}:
-                    </span>{" "}
-                    {value || "N/A"}
-                  </p>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-            Questionnaire was not completed for this scan.
-          </p>
-        )}
+        <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Clinical Context Used</h3>
+        <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+          {result.contextText || result.contextPayload?.context_text || "No context stored for this scan."}
+        </p>
       </Card>
 
       {result.followupQuestions?.length ? (
         <Card>
-          <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-            Suggested Follow-up Questions
-          </h3>
+          <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Condition-Aware Follow-up Questions</h3>
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-            Based on image pattern + submitted context, these questions should be answered next:
+            These were generated from image pattern and clinical context.
           </p>
           <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-slate-200">
             {result.followupQuestions.map((question) => (
@@ -317,9 +355,13 @@ function ResultPage() {
       <div className="grid gap-5 lg:grid-cols-2">
         <Card>
           <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Medical Explanation</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
-            {result.explanation}
-          </p>
+          <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-200">{probabilitySummary}</p>
+          {result.explanation ? (
+            <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+              {result.explanation}
+            </p>
+          ) : null}
+
           {probabilities.length ? (
             <div className="mt-4 space-y-3">
               {probabilities.map((entry) => (
@@ -343,32 +385,35 @@ function ResultPage() {
         </Card>
 
         <Card>
-          <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Heatmap (Placeholder)</h3>
-          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900">
-            <div className="relative overflow-hidden rounded-lg">
-              <img
-                src={activeImage || result.image}
-                alt="heatmap base"
-                className="aspect-square w-full object-cover"
-              />
-              <motion.div
-                initial={{ opacity: 0.35 }}
-                animate={{ opacity: [0.35, 0.65, 0.35] }}
-                transition={{ repeat: Infinity, duration: 2.6 }}
-                className="absolute inset-0 bg-gradient-to-tr from-red-500/35 via-transparent to-orange-400/35"
-              />
+          <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Grad-CAM Heatmap</h3>
+          {heatmapSrc && activeImage ? (
+            <div className="mt-3 space-y-3">
+              <div className="relative overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+                <img
+                  src={activeImage}
+                  alt="Analyzed lesion"
+                  className="aspect-square w-full object-cover"
+                />
+                <img
+                  src={heatmapSrc}
+                  alt="Grad-CAM overlay"
+                  className="absolute inset-0 aspect-square h-full w-full object-cover opacity-60 mix-blend-multiply"
+                />
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900">
+                <img src={heatmapSrc} alt="Grad-CAM heatmap" className="aspect-square w-full rounded-lg object-cover" />
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Heatmap highlights image regions that most influenced model probability scoring.
+              </p>
             </div>
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-              Heatmap layer will render lesion attention area from model explainability output.
+          ) : (
+            <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+              Heatmap not available for this scan output.
             </p>
-          </div>
+          )}
         </Card>
       </div>
-
-      <Card>
-        <h3 className="mb-3 text-base font-bold text-slate-900 dark:text-slate-100">Personal Health Tips</h3>
-        <TipsAccordion tips={result.tips || []} />
-      </Card>
     </motion.section>
   );
 }

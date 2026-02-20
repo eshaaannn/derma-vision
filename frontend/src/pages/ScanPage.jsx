@@ -18,11 +18,12 @@ import { createId } from "../utils/id";
 import {
   buildEnhancedContext,
   QUESTIONNAIRE_DEFAULTS,
-  evaluateCancerQuestionnaire,
   isQuestionnaireComplete,
 } from "../utils/questionnaire";
 
 const MAX_IMAGE_COUNT = Number(import.meta.env.VITE_MAX_IMAGE_COUNT || 4);
+const REQUIRED_INPUT_MESSAGE =
+  "Please upload an image and provide clinical context before proceeding.";
 const INPUT_ERROR_CODES = new Set([
   "TOO_MANY_IMAGES",
   "INVALID_IMAGE",
@@ -32,106 +33,53 @@ const INPUT_ERROR_CODES = new Set([
   "MISSING_IMAGE",
 ]);
 
-function generateDemoPrediction() {
-  const confidence = Math.floor(Math.random() * 45) + 52;
-  const riskLevel = confidence > 78 ? "High" : confidence > 60 ? "Medium" : "Low";
-  return {
-    confidence,
-    predictedClass: riskLevel === "High" ? "Suspicious Lesion" : "Benign Lesion",
-    explanation:
-      "Demo result generated because API was unreachable. Connect backend to /predict for real inference.",
-    riskLevel,
-    probabilities: {
-      Benign: riskLevel === "Low" ? 0.76 : 0.31,
-      Melanoma: riskLevel === "High" ? 0.72 : 0.24,
-    },
-    tips: [
-      "Capture images in natural light for improved accuracy.",
-      "Track lesion changes every 2-4 weeks.",
-      "Seek dermatologist consultation for persistent concerns.",
-    ],
-  };
-}
-
-function mergeProbabilities(results) {
-  const summary = {};
-  results.forEach((result) => {
-    Object.entries(result.probabilities || {}).forEach(([label, value]) => {
-      summary[label] = summary[label] || { total: 0, count: 0 };
-      summary[label].total += Number(value) || 0;
-      summary[label].count += 1;
-    });
-  });
-
-  return Object.fromEntries(
-    Object.entries(summary).map(([label, entry]) => [
-      label,
-      entry.count ? entry.total / entry.count : 0,
-    ])
-  );
-}
-
-function aggregatePredictions(results) {
-  if (!results.length) {
-    return generateDemoPrediction();
-  }
-  if (results.length === 1) {
-    return results[0];
-  }
-
-  const riskRank = { Low: 1, Medium: 2, High: 3 };
-  const highestRisk = [...results].sort(
-    (a, b) => (riskRank[b.riskLevel] || 1) - (riskRank[a.riskLevel] || 1)
-  )[0];
-  const highestConfidence = [...results].sort((a, b) => b.confidence - a.confidence)[0];
-  const averageConfidence =
-    results.reduce((total, result) => total + (Number(result.confidence) || 0), 0) / results.length;
-  const mergedTips = Array.from(new Set(results.flatMap((result) => result.tips || [])));
-
-  return {
-    confidence: Number(averageConfidence.toFixed(1)),
-    predictedClass: highestConfidence.predictedClass,
-    explanation: `Combined analysis from ${results.length} images indicates ${highestRisk.riskLevel.toLowerCase()} risk. ${highestConfidence.explanation}`,
-    riskLevel: highestRisk.riskLevel,
-    probabilities: mergeProbabilities(results),
-    tips: mergedTips,
-  };
-}
-
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function fusePredictionWithQuestionnaire(aiPrediction, assessment) {
-  if (!assessment) return aiPrediction;
+function normalizeFollowupItems(normalizedResponse) {
+  const source = Array.isArray(normalizedResponse?.followupItems)
+    ? normalizedResponse.followupItems
+    : [];
 
-  const riskToScore = { Low: 1, Medium: 2, High: 3 };
-  const scoreToRisk = (score) => {
-    if (score >= 2.5) return "High";
-    if (score >= 1.75) return "Medium";
-    return "Low";
-  };
+  const deduped = [];
+  const seen = new Set();
 
-  const aiRiskScore = riskToScore[aiPrediction.riskLevel] || 1;
-  const questionnaireBoost =
-    assessment.level === "High" ? 1 : assessment.level === "Moderate" ? 0.5 : -0.2;
-  const fusedRiskScore = clamp(aiRiskScore + questionnaireBoost, 1, 3);
-  const fusedRiskLevel = scoreToRisk(fusedRiskScore);
+  source.forEach((item) => {
+    const key = item?.key ? String(item.key).trim() : "";
+    const question = item?.question ? String(item.question).trim() : "";
+    if (!key || !question || seen.has(key)) return;
+    seen.add(key);
+    deduped.push({ key, question });
+  });
 
-  const questionnaireConfidence = clamp((assessment.score / 15) * 100, 0, 100);
-  const fusedConfidence = clamp(
-    Math.round((aiPrediction.confidence || 0) * 0.85 + questionnaireConfidence * 0.15),
-    30,
-    99
-  );
+  return deduped.slice(0, 6);
+}
 
-  return {
-    ...aiPrediction,
-    confidence: fusedConfidence,
-    riskLevel: fusedRiskLevel,
-    explanation:
-      `${aiPrediction.explanation} Combined with questionnaire signal (${assessment.presence}, score ${assessment.score}) for final calibrated risk.`,
-  };
+function buildPerImageResults(imageCount, response, normalized) {
+  const perImageScores = Array.isArray(response?.details?.individual_scores)
+    ? response.details.individual_scores
+    : [];
+
+  return Array.from({ length: imageCount }).map((_, index) => {
+    const rawScore = Number(perImageScores[index]);
+    const safeScore = Number.isFinite(rawScore) ? clamp(rawScore, 0, 1) : null;
+
+    const riskLevel =
+      safeScore === null
+        ? normalized.riskLevel
+        : safeScore >= 0.75
+          ? "High"
+          : safeScore >= 0.4
+            ? "Medium"
+            : "Low";
+
+    return {
+      confidence: safeScore === null ? normalized.confidence : safeScore * 100,
+      predictedClass: normalized.predictedClass,
+      riskLevel,
+    };
+  });
 }
 
 function ScanPage() {
@@ -147,22 +95,17 @@ function ScanPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeMode, setActiveMode] = useState("upload");
   const [error, setError] = useState("");
-  const [canUseDemo, setCanUseDemo] = useState(false);
   const [questionnaire, setQuestionnaire] = useState({ ...QUESTIONNAIRE_DEFAULTS });
   const [followupItems, setFollowupItems] = useState([]);
   const [followupAnswers, setFollowupAnswers] = useState({});
   const [pendingContextPayload, setPendingContextPayload] = useState(null);
-  const [pendingQuestionnaireAssessment, setPendingQuestionnaireAssessment] = useState(null);
+
   const imagesRef = useRef([]);
 
   const hasImages = useMemo(() => images.length > 0, [images.length]);
   const questionnaireComplete = useMemo(
     () => isQuestionnaireComplete(questionnaire),
     [questionnaire]
-  );
-  const questionnaireAssessment = useMemo(
-    () => (questionnaireComplete ? evaluateCancerQuestionnaire(questionnaire) : null),
-    [questionnaire, questionnaireComplete]
   );
   const selectedImage = useMemo(
     () => images.find((image) => image.id === selectedImageId) || images[0] || null,
@@ -173,6 +116,9 @@ function ScanPage() {
     () =>
       followupItems.every((item) => {
         const raw = followupAnswers[item.key];
+        if (item.key === "duration_days") {
+          return raw !== "" && Number.isFinite(Number(raw)) && Number(raw) >= 0;
+        }
         return typeof raw === "string" ? raw.trim().length > 0 : Boolean(raw);
       }),
     [followupAnswers, followupItems]
@@ -205,12 +151,12 @@ function ScanPage() {
     setFollowupItems([]);
     setFollowupAnswers({});
     setPendingContextPayload(null);
-    setPendingQuestionnaireAssessment(null);
   };
 
   const handleIncomingFiles = (files) => {
     const validFiles = files.filter((file) => file.type.startsWith("image/"));
     if (!validFiles.length) return;
+
     const remainingSlots = Math.max(0, MAX_IMAGE_COUNT - images.length);
     if (remainingSlots <= 0) {
       const maxMessage = `Maximum ${MAX_IMAGE_COUNT} images allowed. Remove one to add a new image.`;
@@ -222,10 +168,10 @@ function ScanPage() {
       });
       return;
     }
+
     const acceptedFiles = validFiles.slice(0, remainingSlots);
 
     setError("");
-    setCanUseDemo(false);
     clearFollowupState();
 
     const nextImages = acceptedFiles.map((file) => ({
@@ -289,7 +235,6 @@ function ScanPage() {
     setShowCropper(false);
     setUploadProgress(0);
     setError("");
-    setCanUseDemo(false);
     setQuestionnaire({ ...QUESTIONNAIRE_DEFAULTS });
     clearFollowupState();
   };
@@ -297,7 +242,6 @@ function ScanPage() {
   const finalizeResult = async (
     normalized,
     perImageResults,
-    finalQuestionnaireAssessment,
     contextPayload,
     backendResponse,
     followupAnswerPayload = null
@@ -313,14 +257,10 @@ function ScanPage() {
       predictedClass: normalized.predictedClass,
       explanation: normalized.explanation,
       riskLevel: normalized.riskLevel,
-      tips: normalized.tips,
       probabilities: normalized.probabilities,
       riskScore: getRiskScore(normalized.riskLevel),
-      questionnaireAnswers: { ...questionnaire },
+      contextText: questionnaire.contextText?.trim() || "",
       contextPayload,
-      questionnaireAssessment: finalQuestionnaireAssessment
-        ? { ...finalQuestionnaireAssessment, answeredAt: new Date().toISOString() }
-        : null,
       followupQuestions:
         normalized.followupQuestions?.length
           ? normalized.followupQuestions
@@ -329,6 +269,7 @@ function ScanPage() {
       followupAnswers: followupAnswerPayload,
       backendStatus: backendResponse?.status || "success",
       topLabel: backendResponse?.top_label || normalized.predictedClass,
+      backendDetails: normalized.backendDetails || backendResponse?.details || null,
       modelExplainability: backendResponse?.model_explainability || null,
       aiImageBreakdown: perImageResults.map((entry, index) => ({
         imageNumber: index + 1,
@@ -343,61 +284,48 @@ function ScanPage() {
     navigate("/result", { state: { result: scan } });
   };
 
-  const buildPerImageResults = (response, normalized) => {
-    const perImageScores = Array.isArray(response?.details?.individual_scores)
-      ? response.details.individual_scores
-      : [];
-    return images.map((_, index) => {
-      const score = Number(perImageScores[index]);
-      const safeScore = Number.isFinite(score) ? Math.min(1, Math.max(0, score)) : null;
-      const riskLevel =
-        safeScore === null
-          ? normalized.riskLevel
-          : safeScore >= 0.75
-            ? "High"
-            : safeScore >= 0.4
-              ? "Medium"
-              : "Low";
-      return {
-        confidence: safeScore === null ? normalized.confidence : safeScore * 100,
-        predictedClass: normalized.predictedClass,
-        riskLevel,
-      };
+  const startFollowupStep = (items, contextPayload) => {
+    setFollowupItems(items);
+    setFollowupAnswers(Object.fromEntries(items.map((item) => [item.key, ""])));
+    setPendingContextPayload(contextPayload);
+    setUploadProgress(100);
+    showToast({
+      type: "warning",
+      title: "Follow-up Required",
+      message: "Answer the relevant follow-up questions to generate final prediction.",
     });
   };
 
   const analyzeImages = async () => {
-    if (!images.length) {
-      setError("Please upload at least one image before analysis.");
+    const contextPayload = buildEnhancedContext(questionnaire);
+
+    if (!hasImages || !contextPayload.context_text) {
+      setError(REQUIRED_INPUT_MESSAGE);
+      showToast({
+        type: "warning",
+        title: "Missing Required Input",
+        message: REQUIRED_INPUT_MESSAGE,
+      });
       return;
     }
+
     if (images.length > MAX_IMAGE_COUNT) {
       setError(`Maximum ${MAX_IMAGE_COUNT} images are allowed.`);
       return;
     }
+
     if (awaitingFollowup) {
       setError("Please answer follow-up questions to get final prediction.");
-      return;
-    }
-    if (!questionnaireComplete) {
-      setError("Please complete the image context form before AI analysis.");
-      showToast({
-        type: "warning",
-        title: "Context Incomplete",
-        message: "Answer required context fields to continue.",
-      });
       return;
     }
 
     setIsAnalyzing(true);
     setError("");
-    setCanUseDemo(false);
     setUploadProgress(0);
 
     try {
-      const finalQuestionnaireAssessment = evaluateCancerQuestionnaire(questionnaire);
-      const contextPayload = buildEnhancedContext(questionnaire);
       clearFollowupState();
+
       const response = await predictLesionEnhanced(
         images.map((image) => image.file),
         contextPayload,
@@ -409,64 +337,40 @@ function ScanPage() {
         }
       );
 
+      const normalized = normalizePredictionResponse(response);
+      const followupFromApi = normalizeFollowupItems(normalized);
+
       if (response?.status && response.status !== "success") {
-        const followups = normalizePredictionResponse(response).followupQuestions || [];
-        const fallbackMessage = "Analysis could not complete. Please retake clear images and try again.";
-        setError(response?.message || fallbackMessage);
-        if (followups.length) {
-          showToast({
-            type: "warning",
-            title: "More Context Needed",
-            message: followups[0],
-          });
+        if (followupFromApi.length) {
+          startFollowupStep(followupFromApi, contextPayload);
+          return;
         }
+
+        const fallbackMessage =
+          response?.message || "Analysis could not complete. Please retake clear images and try again.";
+        setError(fallbackMessage);
         return;
       }
-
-      const normalized = normalizePredictionResponse(response);
-      const followupFromApi = Array.isArray(normalized.followupItems)
-        ? normalized.followupItems
-            .filter((item) => item?.key && item?.question && !String(item.key).startsWith("followup_"))
-            .slice(0, 6)
-        : [];
 
       if (followupFromApi.length) {
-        setFollowupItems(followupFromApi);
-        setFollowupAnswers(
-          Object.fromEntries(followupFromApi.map((item) => [item.key, ""]))
-        );
-        setPendingContextPayload(contextPayload);
-        setPendingQuestionnaireAssessment(finalQuestionnaireAssessment);
-        setUploadProgress(100);
-        showToast({
-          type: "warning",
-          title: "Follow-up Required",
-          message: "Step 2: answer the relevant follow-up questions to get final prediction.",
-        });
+        startFollowupStep(followupFromApi, contextPayload);
         return;
       }
 
-      const perImageResults = buildPerImageResults(response, normalized);
+      const perImageResults = buildPerImageResults(images.length, response, normalized);
 
       setUploadProgress(100);
       showToast({
         type: "success",
         title: "Analysis Complete",
-        message: `Final prediction generated from ${images.length} image(s) + provided context.`,
+        message: `Final prediction generated from ${images.length} image(s) + clinical context.`,
       });
-      await finalizeResult(
-        normalized,
-        perImageResults,
-        finalQuestionnaireAssessment,
-        contextPayload,
-        response,
-        null
-      );
+
+      await finalizeResult(normalized, perImageResults, contextPayload, response, null);
     } catch (apiError) {
       const inputError = Boolean(apiError?.code && INPUT_ERROR_CODES.has(apiError.code));
-      const message = apiError?.message || "Could not reach prediction API. You can retry or continue with demo data.";
+      const message = apiError?.message || "Could not reach prediction API. Please retry.";
       setError(message);
-      setCanUseDemo(!inputError);
       showToast({
         type: inputError ? "warning" : "error",
         title: "Prediction Failed",
@@ -491,8 +395,6 @@ function ScanPage() {
     setUploadProgress(0);
 
     const contextPayload = pendingContextPayload || buildEnhancedContext(questionnaire);
-    const finalQuestionnaireAssessment =
-      pendingQuestionnaireAssessment || evaluateCancerQuestionnaire(questionnaire);
 
     try {
       const response = await predictLesionEnhanced(
@@ -512,21 +414,18 @@ function ScanPage() {
       }
 
       const normalized = normalizePredictionResponse(response);
-      const perImageResults = buildPerImageResults(response, normalized);
+      const perImageResults = buildPerImageResults(images.length, response, normalized);
+
       setUploadProgress(100);
       showToast({
         type: "success",
         title: "Final Prediction Ready",
         message: "Final score updated using follow-up answers.",
       });
-      await finalizeResult(
-        normalized,
-        perImageResults,
-        finalQuestionnaireAssessment,
-        contextPayload,
-        response,
-        { ...followupAnswers }
-      );
+
+      await finalizeResult(normalized, perImageResults, contextPayload, response, {
+        ...followupAnswers,
+      });
       clearFollowupState();
     } catch (apiError) {
       setError(apiError?.message || "Could not process follow-up answers right now. Please retry.");
@@ -538,20 +437,6 @@ function ScanPage() {
     } finally {
       setIsAnalyzing(false);
     }
-  };
-
-  const useDemoResult = async () => {
-    const finalQuestionnaireAssessment = evaluateCancerQuestionnaire(questionnaire);
-    const demoPredictions = images.map(() => generateDemoPrediction());
-    const contextPayload = buildEnhancedContext(questionnaire);
-    const merged = aggregatePredictions(demoPredictions);
-    const fused = fusePredictionWithQuestionnaire(merged, finalQuestionnaireAssessment);
-    showToast({
-      type: "warning",
-      title: "Demo Mode",
-      message: "Showing simulated result because API was unavailable.",
-    });
-    await finalizeResult(fused, demoPredictions, finalQuestionnaireAssessment, contextPayload, null);
   };
 
   const handleQuestionAnswer = (key, value) => {
@@ -624,59 +509,81 @@ function ScanPage() {
           </div>
 
           {selectedImage ? (
-            <img
-              src={selectedImage.previewUrl}
-              alt="Selected lesion preview"
-              className="mx-auto aspect-square w-full max-w-sm rounded-xl border border-slate-200 object-cover dark:border-slate-700"
-            />
-          ) : null}
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {images.map((image, index) => (
-              <div
-                key={image.id}
-                className={`rounded-xl border p-2 ${
-                  selectedImage?.id === image.id
-                    ? "border-medicalBlue bg-blue-50/70 dark:border-blue-500 dark:bg-blue-900/20"
-                    : "border-slate-200 dark:border-slate-700"
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => setSelectedImageId(image.id)}
-                  className="w-full"
-                >
-                  <img
-                    src={image.previewUrl}
-                    alt={`Lesion ${index + 1}`}
-                    className="aspect-square w-full rounded-lg object-cover"
-                  />
-                </button>
-                <div className="mt-2 flex gap-2">
+            <div className="mx-auto w-full max-w-[22rem]">
+              <img
+                src={selectedImage.previewUrl}
+                alt="Selected lesion preview"
+                className="aspect-square w-full rounded-xl border border-slate-200 object-cover dark:border-slate-700"
+              />
+              {images.length === 1 ? (
+                <div className="mt-3 flex gap-2">
                   <Button
                     variant="ghost"
                     className="w-full px-2 py-1.5 text-xs"
-                    onClick={() => openCropperForImage(image.id)}
+                    onClick={() => openCropperForImage(selectedImage.id)}
                   >
                     Crop
                   </Button>
                   <Button
                     variant="danger"
                     className="w-full px-2 py-1.5 text-xs"
-                    onClick={() => removeImage(image.id)}
+                    onClick={() => removeImage(selectedImage.id)}
                   >
                     Remove
                   </Button>
                 </div>
-              </div>
-            ))}
-          </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {images.length > 1 ? (
+            <div className="mt-4 grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {images.map((image, index) => (
+                <div
+                  key={image.id}
+                  className={`rounded-xl border p-2 ${
+                    selectedImage?.id === image.id
+                      ? "border-medicalBlue bg-blue-50/70 dark:border-blue-500 dark:bg-blue-900/20"
+                      : "border-slate-200 dark:border-slate-700"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSelectedImageId(image.id)}
+                    className="w-full"
+                  >
+                    <img
+                      src={image.previewUrl}
+                      alt={`Lesion ${index + 1}`}
+                      className="aspect-square w-full rounded-lg object-cover"
+                    />
+                  </button>
+                  <div className="mt-2 flex gap-2">
+                    <Button
+                      variant="ghost"
+                      className="w-full px-2 py-1.5 text-xs"
+                      onClick={() => openCropperForImage(image.id)}
+                    >
+                      Crop
+                    </Button>
+                    <Button
+                      variant="danger"
+                      className="w-full px-2 py-1.5 text-xs"
+                      onClick={() => removeImage(image.id)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <div className="mt-4 flex flex-wrap gap-2">
             <Button
               onClick={analyzeImages}
               loading={isAnalyzing}
-              disabled={!questionnaireComplete || awaitingFollowup}
+              disabled={!hasImages || !questionnaireComplete || awaitingFollowup}
             >
               Analyze {images.length} Image{images.length > 1 ? "s" : ""} with AI + Context
             </Button>
@@ -684,11 +591,11 @@ function ScanPage() {
               Clear All
             </Button>
           </div>
+
           {!questionnaireComplete ? (
-            <p className="mt-2 text-xs font-semibold text-warningOrange">
-              Complete required context fields below to enable analysis.
-            </p>
+            <p className="mt-2 text-xs font-semibold text-warningOrange">{REQUIRED_INPUT_MESSAGE}</p>
           ) : null}
+
           {awaitingFollowup ? (
             <p className="mt-2 text-xs font-semibold text-medicalBlue dark:text-blue-300">
               Step 1 complete. Submit follow-up answers below for final prediction.
@@ -699,11 +606,7 @@ function ScanPage() {
 
       {hasImages ? (
         <Card>
-          <CancerQuestionnaire
-            value={questionnaire}
-            onChange={handleQuestionAnswer}
-            assessment={questionnaireAssessment}
-          />
+          <CancerQuestionnaire value={questionnaire} onChange={handleQuestionAnswer} />
         </Card>
       ) : null}
 
@@ -715,7 +618,7 @@ function ScanPage() {
                 Follow-up Questions (Step 2 of 2)
               </h3>
               <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                These questions are generated from your image + context. Answer all to get final prediction.
+                These questions are generated from your image pattern and submitted clinical context.
               </p>
             </div>
 
@@ -773,18 +676,13 @@ function ScanPage() {
       {isAnalyzing ? (
         <>
           <UploadProgress value={uploadProgress} />
-          <Loader subtitle="Running image analysis with symptom context." />
+          <Loader subtitle="Running image analysis with clinical context." />
         </>
       ) : null}
 
       {error ? (
         <Card className="border border-red-200 bg-red-50/70 dark:border-red-900/40 dark:bg-red-900/10">
           <p className="text-sm font-semibold text-red-700 dark:text-red-300">{error}</p>
-          {canUseDemo ? (
-            <Button className="mt-3" variant="secondary" onClick={useDemoResult}>
-              Continue with Demo Result
-            </Button>
-          ) : null}
         </Card>
       ) : null}
 

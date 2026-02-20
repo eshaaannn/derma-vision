@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import Button from "../ui/Button";
@@ -17,6 +17,8 @@ function AppLayout() {
   const { user, logout } = useAuth();
   const { isDark, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isDashboardPage = location.pathname === "/dashboard";
 
   const handleLogout = () => {
     logout();
@@ -25,7 +27,7 @@ function AppLayout() {
 
   return (
     <div className="min-h-screen bg-softBg pb-10 dark:bg-slate-950">
-      <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-card/95 backdrop-blur shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:shadow-[0_8px_20px_-14px_rgba(8,43,61,0.8)]">
+      <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-card/95 backdrop-blur shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:shadow-[0_8px_20px_-14px_rgba(8,43,61,0.8)]">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-center px-4 py-3 md:justify-between md:px-6">
           <div className="flex items-center gap-3">
             <BrandLogo className="h-12 w-12" />
@@ -118,14 +120,19 @@ function AppLayout() {
             </button>
           </div>
         </div>
+        <div className="border-t border-amber-200/70 bg-amber-50/95 dark:border-amber-900/70 dark:bg-amber-950/40">
+          <div className="mx-auto w-full max-w-7xl px-4 py-2 text-center text-sm font-semibold text-amber-800 dark:text-amber-200 md:px-6">
+            This platform provides AI-based probability predictions and does not confirm or diagnose cancer.
+          </div>
+        </div>
       </header>
 
       <main className="mx-auto w-full max-w-7xl px-4 pt-6 md:px-6">
-        <BackButton fallbackTo="/dashboard" className="mb-3" />
+        {!isDashboardPage ? <BackButton fallbackTo="/dashboard" className="mb-3" /> : null}
         <div className="mb-5 rounded-2xl bg-medical-gradient p-4 text-white shadow-soft">
-          <h1 className="text-lg font-bold md:text-xl">Welcome back, {user?.fullName || "User"}</h1>
+          <h1 className="text-lg font-bold md:text-xl">Welcome, {user?.fullName || "User"}</h1>
           <p className="text-sm text-white/90">
-            Early detection saves lives. Continue your routine skin checks.
+            Upload lesion images with clinical context for probability-based screening.
           </p>
         </div>
         <Outlet />

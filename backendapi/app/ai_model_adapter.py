@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.util
 import io
@@ -8,7 +9,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Callable
 
-from PIL import Image, ImageFilter, ImageStat
+from PIL import Image, ImageFilter, ImageOps, ImageStat
 
 _LOCK = Lock()
 _PREDICT_FUNC: Callable[[str, dict[str, Any] | None], dict[str, Any]] | None = None
@@ -63,12 +64,40 @@ def _fallback_prediction(image_bytes: bytes, error_message: str | None = None) -
     base_score = float(visual_pattern["base_risk"])
     risk_score = max(0.0, min(1.0, base_score + ((deterministic_jitter - 0.5) * 0.04)))
     top_label = str(visual_pattern["label"])
+    heatmap = _build_fallback_heatmap(image_bytes)
     explainability = {
         "source": "fallback_visual_pattern",
         "reason": error_message or _LOAD_ERROR or "ai-training model unavailable",
         "visual_pattern": visual_pattern,
+        "heatmap": heatmap,
     }
-    return {"risk_score": risk_score, "top_label": top_label, "explainability": explainability}
+    return {
+        "risk_score": risk_score,
+        "top_label": top_label,
+        "explainability": explainability,
+        "model_confidence": None,
+    }
+
+
+def _build_fallback_heatmap(image_bytes: bytes) -> str | None:
+    try:
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((224, 224))
+    except Exception:
+        return None
+
+    gray = image.convert("L")
+    edges = gray.filter(ImageFilter.FIND_EDGES)
+    edges = ImageOps.autocontrast(edges)
+    boosted = ImageOps.equalize(edges)
+
+    red = boosted
+    green = boosted.point(lambda p: min(255, int(p * 0.65)))
+    blue = boosted.point(lambda p: min(255, int(p * 0.2)))
+    heatmap = Image.merge("RGB", (red, green, blue))
+
+    buffer = io.BytesIO()
+    heatmap.save(buffer, format="PNG", optimize=True)
+    return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 
 def _estimate_visual_pattern(image_bytes: bytes) -> dict[str, Any]:
@@ -171,16 +200,22 @@ def predict_image_bytes(image_bytes: bytes) -> dict[str, Any]:
             if weak_or_generic_label and low_model_confidence:
                 top_label = pattern_label
 
+        heatmap = result.get("heatmap") or _build_fallback_heatmap(image_bytes)
         explainability = {
             "source": "ai-training",
             "risk_level": result.get("risk_level"),
             "model_confidence": model_confidence,
             "decision": result.get("decision"),
-            "heatmap": result.get("heatmap"),
+            "heatmap": heatmap,
             "visual_pattern": visual_pattern,
         }
 
-        return {"risk_score": risk_score, "top_label": str(top_label), "explainability": explainability}
+        return {
+            "risk_score": risk_score,
+            "top_label": str(top_label),
+            "explainability": explainability,
+            "model_confidence": model_confidence,
+        }
     except Exception as exc:
         return _fallback_prediction(image_bytes, str(exc))
     finally:
