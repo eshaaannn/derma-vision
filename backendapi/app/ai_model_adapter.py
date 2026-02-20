@@ -89,31 +89,31 @@ def _estimate_visual_pattern(image_bytes: bytes) -> dict[str, Any]:
     redness = r_mean - max(g_mean, b_mean)
     darkness = 255.0 - brightness
 
-    if redness > 14 and edge_intensity > 10:
-        return {
-            "label": "possible_fungal_infection",
-            "base_risk": 0.26,
-            "reason": "reddish_patch_with_texture",
-        }
-
-    if redness > 18 and edge_intensity <= 10:
-        return {
-            "label": "possible_inflammatory_rash",
-            "base_risk": 0.24,
-            "reason": "reddish_diffuse_pattern",
-        }
-
-    if darkness > 95 and edge_intensity > 12:
+    if darkness > 105 and edge_intensity > 13:
         return {
             "label": "suspicious_pigmented_lesion",
-            "base_risk": 0.58,
+            "base_risk": 0.6,
             "reason": "dark_high_contrast_pattern",
         }
 
-    if edge_intensity > 15 and r_mean > 120 and g_mean > 100:
+    if redness > 24 and 9 <= edge_intensity <= 22 and darkness < 120:
+        return {
+            "label": "possible_fungal_infection",
+            "base_risk": 0.28,
+            "reason": "annular_reddish_texture_signature",
+        }
+
+    if redness > 20 and edge_intensity < 10:
+        return {
+            "label": "possible_inflammatory_rash",
+            "base_risk": 0.25,
+            "reason": "reddish_diffuse_pattern",
+        }
+
+    if edge_intensity > 16 and redness > 10 and brightness > 110:
         return {
             "label": "possible_bacterial_infection",
-            "base_risk": 0.34,
+            "base_risk": 0.33,
             "reason": "high_texture_with_warm_tones",
         }
 
@@ -159,10 +159,17 @@ def predict_image_bytes(image_bytes: bytes) -> dict[str, Any]:
             top_label = "suspicious_lesion" if risk_level in {"high", "medium"} else "benign_like"
 
         if pattern_is_non_cancer:
-            top_label = pattern_label
-            non_cancer_cap = 0.58 if (model_confidence is not None and model_confidence >= 0.8) else 0.5
-            if risk_score > non_cancer_cap:
-                risk_score = round(non_cancer_cap, 4)
+            # Visual heuristics should calibrate uncertain outputs, not hard-override stable model outputs.
+            low_model_confidence = model_confidence is None or model_confidence < 0.72
+            weak_or_generic_label = str(top_label).lower() in {"unknown", "benign_like", "suspicious_lesion"}
+
+            if low_model_confidence and risk_score < 0.78:
+                non_cancer_cap = 0.56 if (model_confidence is not None and model_confidence >= 0.65) else 0.52
+                if risk_score > non_cancer_cap:
+                    risk_score = round(non_cancer_cap, 4)
+
+            if weak_or_generic_label and low_model_confidence:
+                top_label = pattern_label
 
         explainability = {
             "source": "ai-training",

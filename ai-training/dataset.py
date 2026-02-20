@@ -1,22 +1,48 @@
-import os
+import csv
+from pathlib import Path
+
 from PIL import Image
 from torch.utils.data import Dataset
 
-class MEDNODEDataset(Dataset):
-    def __init__(self, root_dir, transform=None):
-        self.samples = []
+
+class PADUFES20Dataset(Dataset):
+    """
+    PAD-UFES-20 binary dataset:
+    - label 1 (Cancer): BCC, SCC, MEL
+    - label 0 (Non-Cancer): ACK, NEV, SEK and others
+    """
+
+    def __init__(self, root_dir, transform=None, malignant_labels=None):
+        self.root_dir = Path(root_dir)
         self.transform = transform
+        self.malignant_labels = set(malignant_labels or {"BCC", "SCC", "MEL"})
+        self.samples = []
 
-        melanoma_dir = os.path.join(root_dir, "melanoma")
-        naevus_dir = os.path.join(root_dir, "naevus")
+        metadata_path = self.root_dir / "metadata.csv"
+        images_dir = self.root_dir / "images"
 
-        # 1 = Cancer
-        for file in os.listdir(melanoma_dir):
-            self.samples.append((os.path.join(melanoma_dir, file), 1))
+        if not metadata_path.exists():
+            raise FileNotFoundError(f"PAD-UFES-20 metadata not found: {metadata_path}")
+        if not images_dir.exists():
+            raise FileNotFoundError(f"PAD-UFES-20 image folder not found: {images_dir}")
 
-        # 0 = Non-Cancer
-        for file in os.listdir(naevus_dir):
-            self.samples.append((os.path.join(naevus_dir, file), 0))
+        with metadata_path.open(newline="", encoding="utf-8") as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                img_id = (row.get("img_id") or "").strip()
+                diagnostic = (row.get("diagnostic") or "").strip().upper()
+                if not img_id or not diagnostic:
+                    continue
+
+                image_path = images_dir / img_id
+                if not image_path.exists():
+                    continue
+
+                label = 1 if diagnostic in self.malignant_labels else 0
+                self.samples.append((str(image_path), label))
+
+        if not self.samples:
+            raise RuntimeError("No valid PAD-UFES-20 samples found.")
 
     def __len__(self):
         return len(self.samples)

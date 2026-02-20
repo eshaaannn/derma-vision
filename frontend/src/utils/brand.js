@@ -1,4 +1,5 @@
 export const LOGO_CANDIDATES = [
+  "/derma-vision-logo.svg",
   "/company-logo.png",
   "/logo.png",
   "/derma-logo.png",
@@ -13,6 +14,7 @@ export function setFavicon(url) {
     link.setAttribute("rel", "icon");
     document.head.appendChild(link);
   }
-  link.setAttribute("type", "image/png");
+  const isSvg = String(url).toLowerCase().endsWith(".svg");
+  link.setAttribute("type", isSvg ? "image/svg+xml" : "image/png");
   link.setAttribute("href", url);
 }

@@ -243,6 +243,12 @@ async def predict_enhanced(
             followup=FollowupResponse(
                 requires_followup=True,
                 questions=["Please upload 2-3 new well-lit, focused images from consistent distance."],
+                items=[
+                    {
+                        "key": "retake_images",
+                        "question": "Please upload 2-3 new well-lit, focused images from consistent distance.",
+                    }
+                ],
             ),
             details=EnhancedDetails(
                 image_count=len(image_scores),

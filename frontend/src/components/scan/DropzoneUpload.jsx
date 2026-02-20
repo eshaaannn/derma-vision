@@ -1,8 +1,9 @@
 import { useRef } from "react";
 import { motion } from "framer-motion";
 
-function DropzoneUpload({ onFilesSelect }) {
+function DropzoneUpload({ onFilesSelect, maxImages = 4, currentCount = 0 }) {
   const inputRef = useRef(null);
+  const remaining = Math.max(0, maxImages - currentCount);
 
   const handleDrop = (event) => {
     event.preventDefault();
@@ -34,7 +35,7 @@ function DropzoneUpload({ onFilesSelect }) {
         Drag and drop one or more lesion images here
       </p>
       <p className="text-xs text-slate-500 dark:text-slate-400">
-        JPG/PNG, upload multiple angles for better clarity
+        JPG/PNG, upload multiple angles for better clarity. Max {maxImages} images ({remaining} remaining).
       </p>
       <input
         ref={inputRef}

@@ -1,5 +1,16 @@
 @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap");
 
+@font-face {
+  font-family: "Season";
+  src:
+    url("/Season-Bold.woff2") format("woff2"),
+    url("/Season-Bold.woff") format("woff"),
+    url("/Season-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -16,6 +27,9 @@
   body {
     @apply bg-softBg text-slate-800 antialiased dark:bg-slate-950 dark:text-slate-100;
     font-family: "Manrope", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    background-image:
+      radial-gradient(circle at 10% 0%, rgba(56, 189, 248, 0.16) 0%, rgba(56, 189, 248, 0) 34%),
+      radial-gradient(circle at 90% 100%, rgba(20, 184, 166, 0.14) 0%, rgba(20, 184, 166, 0) 36%);
   }
 
   * {
@@ -25,7 +39,7 @@
 
 @layer components {
   .glass-card {
-    @apply rounded-2xl border border-slate-200/70 bg-white/90 shadow-soft backdrop-blur-sm dark:border-slate-800 dark:bg-slate-900/90;
+    @apply rounded-2xl border border-slate-200/80 bg-card/95 shadow-soft backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/90;
   }
 
   .gradient-button {

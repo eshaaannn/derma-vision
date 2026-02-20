@@ -1,10 +1,10 @@
 import { AnimatePresence, motion } from "framer-motion";
 
 const typeStyle = {
-  success: "border-healthGreen/40 bg-green-50 text-green-800",
+  success: "border-healthGreen/45 bg-blue-50 text-slate-800",
   error: "border-red-300 bg-red-50 text-red-800",
-  warning: "border-warningOrange/40 bg-orange-50 text-orange-800",
-  info: "border-medicalBlue/40 bg-blue-50 text-blue-800",
+  warning: "border-warningOrange/50 bg-blue-50 text-slate-800",
+  info: "border-medicalBlue/40 bg-blue-100 text-medicalBlue",
 };
 
 function ToastContainer({ toasts, onClose }) {

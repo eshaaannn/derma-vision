@@ -21,6 +21,8 @@ const questionLabels = {
   spreading: "Spreading nearby",
   irregularBorder: "Irregular border",
   colorPattern: "Uniform vs multiple colors",
+  familyHistorySkinCancer: "Family history of skin cancer",
+  previousSkinCancer: "Previous skin cancer diagnosis",
   primaryConcern: "Primary concern",
   contextText: "Extra text context",
   family_history_skin_cancer: "Family history skin cancer",

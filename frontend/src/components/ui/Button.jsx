@@ -3,11 +3,11 @@ import { motion } from "framer-motion";
 const variantStyles = {
   primary: "bg-medical-gradient text-white shadow-soft hover:shadow-lg",
   secondary:
-    "bg-gradient-to-r from-healthGreen to-emerald-500 text-white shadow-soft hover:shadow-lg",
+    "bg-gradient-to-r from-healthGreen to-blue-400 text-white shadow-soft hover:shadow-lg",
   ghost:
-    "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800",
+    "border border-slate-200 bg-card text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800",
   danger:
-    "bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-soft hover:shadow-lg",
+    "bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-soft hover:shadow-lg",
 };
 
 function Button({

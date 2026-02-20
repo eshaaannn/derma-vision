@@ -1,7 +1,7 @@
 # Derma Vision
 
 AI-assisted skin lesion screening app with:
-- multi-image upload
+- image upload
 - text + structured context capture
 - condition-aware follow-up questions
 - final risk prediction using image + context + follow-up answers

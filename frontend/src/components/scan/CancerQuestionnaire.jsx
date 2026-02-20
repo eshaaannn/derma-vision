@@ -17,22 +17,22 @@ const questions = [
   {
     key: "itching",
     label: "Is there persistent itching in this area?",
-    options: ["Yes", "No"],
+    options: ["Yes", "No", "Not sure"],
   },
   {
     key: "bleeding",
     label: "Has this lesion bled, crusted, or oozed recently?",
-    options: ["Yes", "No"],
+    options: ["Yes", "No", "Not sure"],
   },
   {
     key: "pain",
     label: "Is the area painful or tender?",
-    options: ["Yes", "No"],
+    options: ["Yes", "No", "Not sure"],
   },
   {
     key: "scaling",
     label: "Do you see flaky, dry, or scaly skin on this lesion?",
-    options: ["Yes", "No"],
+    options: ["Yes", "No", "Not sure"],
   },
   {
     key: "ringShape",
@@ -42,7 +42,7 @@ const questions = [
   {
     key: "spreading",
     label: "Has this lesion spread to nearby skin?",
-    options: ["Yes", "No"],
+    options: ["Yes", "No", "Not sure"],
   },
   {
     key: "irregularBorder",
@@ -52,7 +52,17 @@ const questions = [
   {
     key: "colorPattern",
     label: "Is the color uniform or does it have multiple shades?",
-    options: ["Uniform", "Multiple colors"],
+    options: ["Uniform", "Multiple colors", "Not sure"],
+  },
+  {
+    key: "familyHistorySkinCancer",
+    label: "Do blood relatives have melanoma/skin cancer history?",
+    options: ["Yes", "No", "Not sure"],
+  },
+  {
+    key: "previousSkinCancer",
+    label: "Have you been diagnosed with skin cancer before?",
+    options: ["Yes", "No", "Not sure"],
   },
   {
     key: "primaryConcern",
@@ -76,7 +86,7 @@ function CancerQuestionnaire({ value, onChange, assessment }) {
           Image & Symptom Context
         </h3>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-          Answer these while uploading and add text context so AI can combine image + history details.
+          Answer core fields while uploading. Extra details are optional but improve image + context reliability.
         </p>
       </div>
 
