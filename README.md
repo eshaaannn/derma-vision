@@ -17,6 +17,15 @@ derma-vision/
   ai-training/   Model training/inference scripts
 ```
 
+## Dataset and Trained Model
+
+Use this Google Drive folder for datasets and trained `model.pt`:
+- https://drive.google.com/drive/folders/16wwZCRTekNRhalB0DSHAqFvsjBFXGCwg?usp=drive_link
+
+Recommended placement:
+- Dataset files -> `ai-training/data/`
+- Trained model -> `ai-training/model.pt`
+
 ## Current Prediction Flow (Implemented)
 
 1. User uploads image(s).
