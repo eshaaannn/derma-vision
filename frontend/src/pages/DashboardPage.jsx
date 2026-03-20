@@ -6,12 +6,21 @@ import Button from "../components/ui/Button";
 import Skeleton from "../components/ui/Skeleton";
 import { deleteScan, getScanHistory } from "../utils/storage";
 import { useToast } from "../context/ToastContext";
+import { useAuth } from "../context/AuthContext";
+import { deleteUserScan, listUserScans } from "../services/scans";
+
+function looksLikeUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "")
+  );
+}
 
 function DashboardPage() {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [scans, setScans] = useState(() => getScanHistory());
+  const [scans, setScans] = useState([]);
 
   const stats = useMemo(() => {
     const total = scans.length;
@@ -23,26 +32,64 @@ function DashboardPage() {
 
   const recent = scans.slice(0, 3);
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadScans() {
+      setLoading(true);
+      try {
+        const nextScans = user?.id ? await listUserScans(user.id, 50) : getScanHistory();
+        if (!active) return;
+        setScans(nextScans);
+      } catch {
+        if (!active) return;
+        setScans(getScanHistory());
+        showToast({
+          type: "warning",
+          title: "History Fallback",
+          message: "Could not load Supabase scan history. Showing local data instead.",
+        });
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadScans();
+    return () => {
+      active = false;
+    };
+  }, [showToast, user?.id]);
+
   const openScanResult = (scan) => {
     navigate("/result", { state: { result: scan } });
   };
 
-  const handleDeleteScan = (scanId) => {
+  const handleDeleteScan = async (scanId) => {
     const confirmed = window.confirm("Delete this previous detection record?");
     if (!confirmed) return;
 
-    setScans(() => deleteScan(scanId));
-    showToast({
-      type: "success",
-      title: "Detection Deleted",
-      message: "Previous detection record was removed.",
-    });
-  };
+    try {
+      if (user?.id && looksLikeUuid(scanId)) {
+        await deleteUserScan(scanId, user.id);
+      }
 
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 750);
-    return () => clearTimeout(timer);
-  }, []);
+      deleteScan(scanId);
+      setScans((current) => current.filter((scan) => scan.id !== scanId));
+      showToast({
+        type: "success",
+        title: "Detection Deleted",
+        message: "Previous detection record was removed.",
+      });
+    } catch {
+      showToast({
+        type: "error",
+        title: "Delete Failed",
+        message: "Could not delete this scan from Supabase right now.",
+      });
+    }
+  };
 
   return (
     <motion.section
@@ -148,14 +195,19 @@ function DashboardPage() {
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {new Date(scan.createdAt).toLocaleString()}
                   </p>
+                  {scan.possibleConditions?.[0] ? (
+                    <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                      Possible: {scan.possibleConditions[0]}
+                    </p>
+                  ) : null}
                 </div>
-                <p className="text-sm font-bold text-medicalBlue">{scan.confidence}%</p>
+                <p className="text-sm font-bold text-medicalBlue">{scan.riskLevel}</p>
                 <Button
                   variant="danger"
                   className="px-2 py-1 text-xs"
                   onClick={(event) => {
                     event.stopPropagation();
-                    handleDeleteScan(scan.id);
+                    void handleDeleteScan(scan.id);
                   }}
                 >
                   Delete

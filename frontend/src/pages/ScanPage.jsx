@@ -14,6 +14,7 @@ import { addScan, saveLastResult } from "../utils/storage";
 import { predictLesionEnhanced } from "../services/api";
 import { getRiskScore, normalizePredictionResponse } from "../utils/prediction";
 import { useToast } from "../context/ToastContext";
+import { useAuth } from "../context/AuthContext";
 import { createId } from "../utils/id";
 import {
   buildEnhancedContext,
@@ -75,7 +76,6 @@ function buildPerImageResults(imageCount, response, normalized) {
             : "Low";
 
     return {
-      confidence: safeScore === null ? normalized.confidence : safeScore * 100,
       predictedClass: normalized.predictedClass,
       riskLevel,
     };
@@ -85,6 +85,7 @@ function buildPerImageResults(imageCount, response, normalized) {
 function ScanPage() {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { user } = useAuth();
 
   const [images, setImages] = useState([]);
   const [selectedImageId, setSelectedImageId] = useState(null);
@@ -248,16 +249,16 @@ function ScanPage() {
   ) => {
     const persistentImages = await Promise.all(images.map((image) => fileToDataUrl(image.file)));
     const scan = {
-      id: createId("scan"),
+      id: backendResponse?.scan_id || createId("scan"),
       createdAt: new Date().toISOString(),
       image: persistentImages[0],
       images: persistentImages,
       analyzedImageCount: persistentImages.length,
-      confidence: Math.round(normalized.confidence),
       predictedClass: normalized.predictedClass,
       explanation: normalized.explanation,
       riskLevel: normalized.riskLevel,
-      probabilities: normalized.probabilities,
+      possibleConditions: normalized.possibleConditions,
+      recommendedSteps: normalized.recommendedSteps,
       riskScore: getRiskScore(normalized.riskLevel),
       contextText: questionnaire.contextText?.trim() || "",
       contextPayload,
@@ -273,14 +274,15 @@ function ScanPage() {
       modelExplainability: backendResponse?.model_explainability || null,
       aiImageBreakdown: perImageResults.map((entry, index) => ({
         imageNumber: index + 1,
-        confidence: Math.round(entry.confidence),
         predictedClass: entry.predictedClass,
         riskLevel: entry.riskLevel,
       })),
     };
 
-    addScan(scan);
     saveLastResult(scan);
+    if (!backendResponse?.scan_id) {
+      addScan(scan);
+    }
     navigate("/result", { state: { result: scan } });
   };
 
@@ -330,6 +332,7 @@ function ScanPage() {
         images.map((image) => image.file),
         contextPayload,
         {},
+        user?.id,
         (event) => {
           if (!event.total) return;
           const percent = (event.loaded / event.total) * 95;
@@ -401,6 +404,7 @@ function ScanPage() {
         images.map((image) => image.file),
         contextPayload,
         followupAnswers,
+        user?.id,
         (event) => {
           if (!event.total) return;
           const percent = (event.loaded / event.total) * 95;

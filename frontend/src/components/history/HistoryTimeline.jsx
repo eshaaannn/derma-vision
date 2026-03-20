@@ -33,11 +33,17 @@ function HistoryTimeline({ scans = [] }) {
             <RiskBadge riskLevel={scan.riskLevel} />
           </div>
           <div className="mt-3 flex items-center gap-3">
-            <img
-              src={scan.image}
-              alt="scanned lesion"
-              className="h-16 w-16 rounded-lg object-cover ring-1 ring-slate-200 dark:ring-slate-700"
-            />
+            {scan.image ? (
+              <img
+                src={scan.image}
+                alt="scanned lesion"
+                className="h-16 w-16 rounded-lg object-cover ring-1 ring-slate-200 dark:ring-slate-700"
+              />
+            ) : (
+              <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700">
+                No Img
+              </div>
+            )}
             <div className="space-y-1">
               <p className="text-xs text-slate-600 dark:text-slate-300">{scan.explanation}</p>
               <div className="flex flex-wrap items-center gap-2">
