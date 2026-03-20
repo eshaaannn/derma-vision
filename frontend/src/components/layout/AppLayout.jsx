@@ -122,7 +122,7 @@ function AppLayout() {
         </div>
         <div className="border-t border-amber-200/70 bg-amber-50/95 dark:border-amber-900/70 dark:bg-amber-950/40">
           <div className="mx-auto w-full max-w-7xl px-4 py-2 text-center text-sm font-semibold text-amber-800 dark:text-amber-200 md:px-6">
-            This platform provides AI-based probability predictions and does not confirm or diagnose cancer.
+            It is safe, accessible skin screening tool, not a diagnostic system.
           </div>
         </div>
       </header>

@@ -38,13 +38,22 @@ const apiClient = axios.create({
   headers: apiKey ? { "X-API-Key": apiKey } : undefined,
 });
 
-export async function predictLesion(imageFile, onUploadProgress) {
+function buildScanParams(userId) {
+  if (!userId) return undefined;
+  return {
+    user_id: userId,
+    patient_ref: userId,
+  };
+}
+
+export async function predictLesion(imageFile, userId, onUploadProgress) {
   const formData = new FormData();
   formData.append("image", imageFile);
 
   try {
     const response = await apiClient.post("/predict", formData, {
       headers: { "Content-Type": "multipart/form-data" },
+      params: buildScanParams(userId),
       onUploadProgress,
     });
     return response.data;
@@ -53,7 +62,13 @@ export async function predictLesion(imageFile, onUploadProgress) {
   }
 }
 
-export async function predictLesionEnhanced(imageFiles, context, followupAnswers, onUploadProgress) {
+export async function predictLesionEnhanced(
+  imageFiles,
+  context,
+  followupAnswers,
+  userId,
+  onUploadProgress
+) {
   const formData = new FormData();
   imageFiles.forEach((file) => {
     formData.append("images", file);
@@ -69,6 +84,7 @@ export async function predictLesionEnhanced(imageFiles, context, followupAnswers
   try {
     const response = await apiClient.post("/predict/enhanced", formData, {
       headers: { "Content-Type": "multipart/form-data" },
+      params: buildScanParams(userId),
       onUploadProgress,
     });
     return response.data;

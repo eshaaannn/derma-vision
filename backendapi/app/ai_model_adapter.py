@@ -121,34 +121,34 @@ def _estimate_visual_pattern(image_bytes: bytes) -> dict[str, Any]:
     if darkness > 105 and edge_intensity > 13:
         return {
             "label": "suspicious_pigmented_lesion",
-            "base_risk": 0.6,
+            "base_risk": 0.74,
             "reason": "dark_high_contrast_pattern",
         }
 
     if redness > 24 and 9 <= edge_intensity <= 22 and darkness < 120:
         return {
             "label": "possible_fungal_infection",
-            "base_risk": 0.28,
+            "base_risk": 0.4,
             "reason": "annular_reddish_texture_signature",
         }
 
     if redness > 20 and edge_intensity < 10:
         return {
             "label": "possible_inflammatory_rash",
-            "base_risk": 0.25,
+            "base_risk": 0.36,
             "reason": "reddish_diffuse_pattern",
         }
 
     if edge_intensity > 16 and redness > 10 and brightness > 110:
         return {
             "label": "possible_bacterial_infection",
-            "base_risk": 0.33,
+            "base_risk": 0.47,
             "reason": "high_texture_with_warm_tones",
         }
 
     return {
         "label": "benign_like",
-        "base_risk": 0.22,
+        "base_risk": 0.18,
         "reason": "low_risk_visual_signature",
     }
 
@@ -193,7 +193,7 @@ def predict_image_bytes(image_bytes: bytes) -> dict[str, Any]:
             weak_or_generic_label = str(top_label).lower() in {"unknown", "benign_like", "suspicious_lesion"}
 
             if low_model_confidence and risk_score < 0.78:
-                non_cancer_cap = 0.56 if (model_confidence is not None and model_confidence >= 0.65) else 0.52
+                non_cancer_cap = 0.66 if (model_confidence is not None and model_confidence >= 0.65) else 0.62
                 if risk_score > non_cancer_cap:
                     risk_score = round(non_cancer_cap, 4)
 

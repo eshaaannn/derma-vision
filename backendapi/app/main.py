@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import json
 import math
 import uuid
@@ -10,6 +12,7 @@ from datetime import datetime, timezone
 from fastapi import Depends, FastAPI, File, Form, Header, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from PIL import Image
 
 from .config import Settings, get_settings
 from .db import SupabaseService
@@ -17,7 +20,10 @@ from .errors import AppError, add_error_handlers
 from .intelligence import (
     aggregate_scores,
     apply_context_weighting,
+    build_possible_conditions,
+    build_personalized_summary,
     build_followup_questions,
+    build_recommended_steps,
     build_risk_message,
     normalize_followup_answers,
     validate_context,
@@ -98,6 +104,7 @@ async def health() -> HealthResponse:
 async def predict(
     image: UploadFile = File(...),
     patient_ref: str | None = Query(default=None),
+    user_id: uuid.UUID | None = Query(default=None),
 ):
     settings = get_settings()
 
@@ -119,13 +126,21 @@ async def predict(
 
     scan_payload = {
         "created_at": created_at.isoformat(),
+        "user_id": str(user_id) if user_id else None,
         "patient_ref": patient_ref,
         "risk_level": risk_level,
         "risk_score": prediction.risk_score,
         "top_label": prediction.top_label,
         "model_version": settings.MODEL_VERSION,
         "status": "success",
-        "metadata": {"filename": image.filename, "content_type": image.content_type},
+        "metadata": {
+            "filename": image.filename,
+            "content_type": image.content_type,
+            "image_preview": _build_preview_data_url(image_bytes),
+            "model_explainability": prediction.explainability,
+            "confidence": prediction.model_confidence,
+            "explanation": f"{risk_level.title()} risk screening result.",
+        },
     }
 
     scan_id = None
@@ -156,6 +171,27 @@ def _parse_json_object(value: str | None, field_name: str) -> dict:
     return parsed
 
 
+def _build_preview_data_url(image_bytes: bytes, max_dimension: int = 640, quality: int = 82) -> str | None:
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            image.load()
+            image.thumbnail((max_dimension, max_dimension))
+
+            if image.mode in {"RGBA", "LA"}:
+                background = Image.new("RGB", image.size, (255, 255, 255))
+                background.paste(image, mask=image.getchannel("A"))
+                image = background
+            elif image.mode != "RGB":
+                image = image.convert("RGB")
+
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=quality, optimize=True)
+            encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+            return f"data:image/jpeg;base64,{encoded}"
+    except Exception:
+        return None
+
+
 @app.post("/predict/enhanced", response_model=PredictEnhancedResponse, dependencies=[Depends(require_api_key)])
 async def predict_enhanced(
     image: UploadFile | None = File(default=None),
@@ -163,6 +199,7 @@ async def predict_enhanced(
     context: str | None = Form(default=None),
     followup_answers: str | None = Form(default=None),
     patient_ref: str | None = Query(default=None),
+    user_id: uuid.UUID | None = Query(default=None),
 ):
     settings = get_settings()
     created_at = datetime.now(timezone.utc)
@@ -198,6 +235,7 @@ async def predict_enhanced(
     quality_metrics: list[dict] = []
     filenames: list[str] = []
     content_types: list[str] = []
+    image_previews: list[str] = []
 
     for upload in uploads:
         image_bytes = await upload.read()
@@ -242,6 +280,9 @@ async def predict_enhanced(
             model_explainability_chunks.append(prediction.explainability)
         filenames.append(upload.filename or "unknown")
         content_types.append(upload.content_type or "unknown")
+        preview = _build_preview_data_url(image_bytes)
+        if preview:
+            image_previews.append(preview)
 
     aggregation = aggregate_scores(image_scores, settings.MAX_SCORE_DISAGREEMENT)
     if aggregation["is_inconsistent"]:
@@ -289,14 +330,54 @@ async def predict_enhanced(
     if image_model_confidences:
         confidence = round(sum(image_model_confidences) / len(image_model_confidences), 2)
     else:
-        confidence = round(min(0.97, max(0.5, final_score)), 2)
+        confidence = None
 
     contributing_factors = list(context_result["contributing_factors"])
     if len(image_scores) > 1:
         contributing_factors.append("Consistent model scores across multiple images")
+    possible_conditions = build_possible_conditions(
+        top_label=top_label,
+        context=merged_context,
+        risk_score=final_score,
+    )
+    simple_explanation = build_personalized_summary(
+        risk_level=messaging["risk_level"],
+        possible_conditions=possible_conditions,
+        symptoms=merged_context,
+        confidence=confidence,
+    )
+    recommended_steps = build_recommended_steps(
+        risk_level=messaging["risk_level"],
+        primary_recommendation=messaging["recommendation"],
+        possible_conditions=possible_conditions,
+        symptoms=merged_context,
+        confidence=confidence,
+    )
+
+    followup_items = [{"key": key, "question": question} for key, question in followup_question_items]
+    per_image_breakdown = [
+        {
+            "image_number": index + 1,
+            "confidence": round(score * 100, 2),
+            "predicted_class": label,
+            "risk_level": map_risk_level(score),
+        }
+        for index, (score, label) in enumerate(zip(image_scores, image_labels))
+    ]
+    model_explainability = model_explainability_chunks[0] if model_explainability_chunks else None
+    backend_details = {
+        "image_count": len(image_scores),
+        "individual_scores": [round(score, 3) for score in image_scores],
+        "score_spread": round(float(aggregation["spread"]), 3),
+        "consistency": "consistent",
+        "context_adjustment": round(float(context_result["context_adjustment"]), 3),
+        "contributing_factors": contributing_factors,
+        "reasoning": "Final score combines weighted multi-image model score with capped deterministic context adjustment.",
+    }
 
     scan_payload = {
         "created_at": created_at.isoformat(),
+        "user_id": str(user_id) if user_id else None,
         "patient_ref": patient_ref,
         "risk_level": messaging["risk_level"],
         "risk_score": final_score,
@@ -305,16 +386,31 @@ async def predict_enhanced(
         "status": "success",
         "metadata": {
             "image_count": len(image_scores),
+            "image_preview": image_previews[0] if image_previews else None,
+            "image_previews": image_previews,
             "individual_scores": [round(score, 4) for score in image_scores],
             "aggregate_score": round(float(aggregation["aggregate_score"]), 4),
             "score_spread": round(float(aggregation["spread"]), 4),
             "context": merged_context,
             "context_adjustment": round(float(context_result["context_adjustment"]), 4),
             "followup_answers": normalized_followup,
+            "followup_questions": followup_questions,
+            "followup_items": followup_items,
             "model_confidences": [round(value, 4) for value in image_model_confidences],
             "quality_metrics": quality_metrics,
             "filenames": filenames,
             "content_types": content_types,
+            "confidence": confidence,
+            "risk_message": messaging["risk_message"],
+            "recommendation": messaging["recommendation"],
+            "recommended_steps": recommended_steps,
+            "simple_explanation": simple_explanation,
+            "explanation": simple_explanation,
+            "possible_conditions": possible_conditions,
+            "backend_details": backend_details,
+            "model_explainability": model_explainability,
+            "ai_image_breakdown": per_image_breakdown,
+            "probabilities": {},
         },
     }
 
@@ -324,14 +420,15 @@ async def predict_enhanced(
     except Exception:
         scan_id = None
 
-    model_explainability = model_explainability_chunks[0] if model_explainability_chunks else None
     return PredictEnhancedResponse(
         status="success",
         scan_id=scan_id,
         risk_level=messaging["risk_level"],
         risk_score=final_score,
         top_label=top_label,
+        possible_conditions=possible_conditions,
         risk_message=messaging["risk_message"],
+        simple_explanation=simple_explanation,
         recommendation=messaging["recommendation"],
         confidence=confidence,
         disclaimer=DISCLAIMER,
@@ -339,17 +436,9 @@ async def predict_enhanced(
         followup=FollowupResponse(
             requires_followup=bool(followup_question_items),
             questions=followup_questions,
-            items=[{"key": key, "question": question} for key, question in followup_question_items],
+            items=followup_items,
         ),
-        details=EnhancedDetails(
-            image_count=len(image_scores),
-            individual_scores=[round(score, 3) for score in image_scores],
-            score_spread=round(float(aggregation["spread"]), 3),
-            consistency="consistent",
-            context_adjustment=round(float(context_result["context_adjustment"]), 3),
-            contributing_factors=contributing_factors,
-            reasoning="Final score combines weighted multi-image model score with capped deterministic context adjustment.",
-        ),
+        details=EnhancedDetails(**backend_details),
         model_explainability=model_explainability,
     )
 
@@ -357,6 +446,7 @@ async def predict_enhanced(
 @app.get("/scans", response_model=ScanHistoryResponse, dependencies=[Depends(require_api_key)])
 async def scans(
     patient_ref: str | None = Query(default=None),
+    user_id: uuid.UUID | None = Query(default=None),
     limit: int = Query(default=10, ge=1, le=50),
     settings: Settings = Depends(get_settings),
 ):
@@ -364,7 +454,11 @@ async def scans(
         raise AppError("FEATURE_DISABLED", "Scan history is disabled.", 404)
 
     try:
-        items = db_service.fetch_scans(patient_ref=patient_ref, limit=limit)
+        items = db_service.fetch_scans(
+            patient_ref=patient_ref,
+            limit=limit,
+            user_id=str(user_id) if user_id else None,
+        )
     except Exception:
         raise AppError("SCAN_HISTORY_FAILED", "Could not fetch scan history.", 500)
 

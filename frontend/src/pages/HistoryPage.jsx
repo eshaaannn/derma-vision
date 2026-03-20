@@ -5,6 +5,9 @@ import TrendLineChart from "../components/history/TrendLineChart";
 import HistoryTimeline from "../components/history/HistoryTimeline";
 import { getScanHistory } from "../utils/storage";
 import Skeleton from "../components/ui/Skeleton";
+import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
+import { listUserScans } from "../services/scans";
 
 function filterByDate(scans, dateFilter) {
   if (dateFilter === "all") return scans;
@@ -14,12 +17,43 @@ function filterByDate(scans, dateFilter) {
 }
 
 function HistoryPage() {
+  const { user } = useAuth();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [riskFilter, setRiskFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [scans, setScans] = useState([]);
 
-  const scans = useMemo(() => getScanHistory(), []);
+  useEffect(() => {
+    let active = true;
+
+    async function loadScans() {
+      setLoading(true);
+      try {
+        const nextScans = user?.id ? await listUserScans(user.id, 100) : getScanHistory();
+        if (!active) return;
+        setScans(nextScans);
+      } catch {
+        if (!active) return;
+        setScans(getScanHistory());
+        showToast({
+          type: "warning",
+          title: "History Fallback",
+          message: "Could not load Supabase history. Showing local data instead.",
+        });
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadScans();
+    return () => {
+      active = false;
+    };
+  }, [showToast, user?.id]);
 
   const filteredScans = useMemo(() => {
     let next = filterByDate(scans, dateFilter);
@@ -36,11 +70,6 @@ function HistoryPage() {
     }
     return next;
   }, [dateFilter, riskFilter, scans, search]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 700);
-    return () => clearTimeout(timer);
-  }, []);
 
   return (
     <motion.section

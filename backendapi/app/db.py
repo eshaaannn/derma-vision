@@ -51,7 +51,12 @@ class SupabaseService:
             self._status = "failed"
             raise
 
-    def fetch_scans(self, patient_ref: str | None, limit: int) -> list[dict[str, Any]]:
+    def fetch_scans(
+        self,
+        patient_ref: str | None,
+        limit: int,
+        user_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         if not self.client:
             return []
 
@@ -59,11 +64,15 @@ class SupabaseService:
         try:
             query = (
                 self.client.table(settings.SUPABASE_TABLE)
-                .select("id,created_at,patient_ref,risk_level,risk_score,top_label,model_version,status,metadata")
+                .select(
+                    "id,created_at,user_id,patient_ref,risk_level,risk_score,top_label,model_version,status,metadata"
+                )
                 .order("created_at", desc=True)
                 .limit(limit)
             )
 
+            if user_id:
+                query = query.eq("user_id", user_id)
             if patient_ref:
                 query = query.eq("patient_ref", patient_ref)
 

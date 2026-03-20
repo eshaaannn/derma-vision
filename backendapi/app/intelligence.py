@@ -142,9 +142,59 @@ STRONG_SIGNAL_KEYS: dict[str, tuple[str, ...]] = {
     "inflammatory": ("itching", "scaling", "photosensitivity", "trigger_products", "allergy_history", "night_itch"),
 }
 
+CONDITION_SUGGESTION_BANK: dict[str, tuple[str, ...]] = {
+    "oncologic": (
+        "Atypical mole or pigmented lesion",
+        "Melanoma-like lesion",
+        "Non-healing suspicious skin lesion",
+    ),
+    "fungal": (
+        "Fungal rash such as ringworm (tinea)",
+        "Inflamed fungal patch",
+        "Superficial spreading skin infection",
+    ),
+    "bacterial": (
+        "Bacterial skin infection",
+        "Folliculitis-like lesion",
+        "Impetigo-like irritated patch",
+    ),
+    "inflammatory": (
+        "Eczema or dermatitis flare",
+        "Inflammatory rash",
+        "Allergic or irritant skin reaction",
+    ),
+    "general": (
+        "Benign-looking skin lesion",
+        "Inflamed skin patch",
+        "Lesion that needs in-person review if it changes",
+    ),
+}
+
 
 def clamp_score(score: float) -> float:
     return max(0.0, min(1.0, float(score)))
+
+
+def _humanize_condition_label(label: str | None) -> str | None:
+    normalized = str(label or "").strip().lower().replace("_", " ")
+    if not normalized:
+        return None
+
+    replacements = {
+        "suspicious pigmented lesion": "Suspicious pigmented lesion",
+        "suspicious lesion": "Suspicious skin lesion",
+        "benign like": "Benign-looking lesion",
+        "possible fungal infection": "Fungal rash such as ringworm (tinea)",
+        "possible inflammatory rash": "Inflammatory rash or dermatitis",
+        "possible bacterial infection": "Bacterial skin infection",
+    }
+    if normalized in replacements:
+        return replacements[normalized]
+
+    if normalized in {"unknown", "benign_like", "suspicious_lesion"}:
+        return None
+
+    return normalized.title()
 
 
 def _is_answered_value(value: Any) -> bool:
@@ -549,10 +599,20 @@ def apply_context_weighting(score: float, context: dict[str, Any], top_label: st
         adjustment = max(-0.12, min(0.24, adjustment))
 
     final_score = clamp_score(score + adjustment)
+    if condition_bucket == "fungal":
+        if context.get("ring_shape") is True and (context.get("scaling") is True or context.get("itching") is True):
+            final_score = max(final_score, 0.4)
+    if condition_bucket == "bacterial":
+        if context.get("pain") is True or context.get("pus") is True or context.get("fever") is True:
+            final_score = max(final_score, 0.46)
+    if condition_bucket == "inflammatory":
+        if context.get("itching") is True and (context.get("scaling") is True or context.get("trigger_products") is True):
+            final_score = max(final_score, 0.38)
+
     if condition_bucket in {"fungal", "bacterial", "inflammatory"} and not (
         context.get("bleeding") and context.get("rapid_growth")
     ):
-        final_score = min(final_score, 0.58)
+        final_score = min(final_score, 0.68)
 
     return {
         "score": final_score,
@@ -644,6 +704,180 @@ def build_risk_message(score: float) -> dict[str, str]:
         "risk_message": "High Risk - Immediate clinical evaluation advised.",
         "recommendation": "Seek prompt in-person medical assessment.",
     }
+
+
+def build_possible_conditions(
+    top_label: str | None,
+    context: dict[str, Any] | None,
+    risk_score: float,
+) -> list[str]:
+    enriched_context = derive_context_from_text(context)
+    condition_bucket = infer_condition_bucket(top_label, enriched_context)
+
+    candidates: list[str] = []
+    primary = _humanize_condition_label(top_label)
+    if primary:
+        candidates.append(primary)
+
+    for suggestion in CONDITION_SUGGESTION_BANK.get(condition_bucket, CONDITION_SUGGESTION_BANK["general"]):
+        if suggestion not in candidates:
+            candidates.append(suggestion)
+
+    if enriched_context.get("ring_shape") is True or enriched_context.get("scaling") is True:
+        candidates.append("Fungal rash such as ringworm (tinea)")
+    if enriched_context.get("pus") is True or enriched_context.get("fever") is True:
+        candidates.append("Bacterial skin infection")
+    if enriched_context.get("itching") is True and enriched_context.get("trigger_products") is True:
+        candidates.append("Allergic or irritant skin reaction")
+    if (
+        enriched_context.get("bleeding") is True
+        or enriched_context.get("rapid_growth") is True
+        or enriched_context.get("irregular_border") is True
+        or enriched_context.get("multi_color") is True
+        or risk_score >= 0.75
+    ):
+        candidates.append("Melanoma-like lesion")
+        candidates.append("Non-healing suspicious skin lesion")
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        normalized = candidate.strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(normalized)
+
+    return deduped[:3]
+
+
+def build_simple_explanation(
+    risk_level: str,
+    possible_conditions: list[str],
+    contributing_factors: list[str],
+) -> str:
+    readable_risk = risk_level.capitalize()
+    primary_condition = possible_conditions[0] if possible_conditions else "a skin condition that needs monitoring"
+
+    if contributing_factors:
+        factors_text = ", ".join(contributing_factors[:2]).lower()
+        return (
+            f"This screening suggests a {readable_risk.lower()} risk pattern. "
+            f"The image and description are most consistent with {primary_condition.lower()}, "
+            f"with key signals such as {factors_text}."
+        )
+
+    return (
+        f"This screening suggests a {readable_risk.lower()} risk pattern. "
+        f"The image and description are most consistent with {primary_condition.lower()}."
+    )
+
+
+def build_personalized_summary(
+    risk_level: str,
+    possible_conditions: list[str],
+    symptoms: dict[str, Any],
+    confidence: float | None = None,
+) -> str:
+    lead_condition = possible_conditions[0] if possible_conditions else "a skin change that should be monitored"
+    urgency_signal = any(
+        symptoms.get(key) is True
+        for key in ("bleeding", "rapid_growth", "non_healing", "irregular_border", "multi_color")
+    )
+
+    if risk_level == "high":
+        return (
+            f"This looks concerning enough to arrange prompt medical review, especially because it may fit "
+            f"{lead_condition.lower()}."
+        )
+    if risk_level == "medium":
+        if urgency_signal:
+            return (
+                f"This needs a timely check because the pattern may fit {lead_condition.lower()} and shows some warning signs."
+            )
+        return f"This deserves a medical check soon because the pattern may fit {lead_condition.lower()}."
+
+    if confidence is not None and confidence < 0.6:
+        return (
+            f"This appears lower risk for now, but it is still worth monitoring because the pattern may fit "
+            f"{lead_condition.lower()}."
+        )
+    return f"This appears lower risk for now and is most consistent with {lead_condition.lower()}."
+
+
+def build_recommended_steps(
+    risk_level: str,
+    primary_recommendation: str,
+    possible_conditions: list[str],
+    symptoms: dict[str, Any],
+    confidence: float | None = None,
+) -> list[str]:
+    possible_text = ", ".join(possible_conditions[:2]).lower() if possible_conditions else "the current skin pattern"
+    fungal_like = any(
+        term in possible_text for term in ("fungal", "ringworm", "tinea")
+    ) or symptoms.get("ring_shape") is True
+    suspicious_like = any(
+        term in possible_text for term in ("melanoma", "suspicious", "pigmented", "atypical")
+    )
+    inflammatory_like = any(
+        term in possible_text for term in ("eczema", "dermatitis", "allergic", "inflammatory")
+    )
+    urgent_symptoms = any(
+        symptoms.get(key) is True for key in ("bleeding", "rapid_growth", "non_healing")
+    )
+
+    steps: list[str] = []
+
+    if risk_level == "high" or urgent_symptoms:
+        steps.extend(
+            [
+                "Arrange an in-person dermatology or medical review within 24-72 hours.",
+                "If the area is actively bleeding, rapidly growing, or not healing, do not delay getting it checked.",
+                "Take clear photos today so you can compare any further change before your appointment.",
+                "Avoid self-treating with steroid or acid-based creams unless a clinician has advised them.",
+                "If you develop severe pain, spreading redness, fever, or marked worsening, seek urgent care the same day.",
+            ]
+        )
+    elif risk_level == "medium":
+        steps.extend(
+            [
+                "Book a dermatology or primary-care review within 5-7 days.",
+                "Recheck the area daily for change in size, shape, color, bleeding, or pain.",
+                "Take one clear photo now and another in a few days to track visible change.",
+                "Avoid picking, scratching, or applying strong over-the-counter treatments until reviewed.",
+            ]
+        )
+    else:
+        steps.extend(
+            [
+                "Monitor the area over the next 2-4 weeks and watch for change in color, shape, size, itching, or bleeding.",
+                "Repeat the screening or arrange a medical review sooner if the lesion changes before that time.",
+                "Keep the area clean, avoid irritation, and use gentle skin care while observing it.",
+                "Take a baseline photo today so you have something to compare against later.",
+            ]
+        )
+
+    if fungal_like:
+        steps.append("Because the pattern may be fungal, keep the area dry and avoid sharing towels or clothing until it settles or is checked.")
+    elif inflammatory_like:
+        steps.append("Because the pattern may be inflammatory, try to avoid obvious triggers such as harsh soaps, cosmetics, or friction.")
+    elif suspicious_like:
+        steps.append("Because the pattern includes suspicious features, prioritize clinician review rather than relying only on repeat self-checks.")
+
+    if confidence is not None and confidence < 0.6:
+        steps.append("The pattern estimate is less certain, so it is safer to escalate to an in-person review if anything changes.")
+
+    steps.insert(0, primary_recommendation)
+
+    deduped: list[str] = []
+    for step in steps:
+        normalized = step.strip()
+        if normalized and normalized not in deduped:
+            deduped.append(normalized)
+    return deduped[:6]
 
 
 def build_confidence(

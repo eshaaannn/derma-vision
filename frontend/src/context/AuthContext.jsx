@@ -1,25 +1,40 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { fetchProfile, upsertProfile } from "../services/profiles";
 
 const AuthContext = createContext(null);
 
-function mapSupabaseUser(authUser) {
+function mapSupabaseUser(authUser, profile = null) {
   if (!authUser) return null;
 
   const metadata = authUser.user_metadata || {};
   const fullName =
-    metadata.fullName || metadata.full_name || authUser.email?.split("@")[0] || "User";
+    profile?.full_name ||
+    metadata.fullName ||
+    metadata.full_name ||
+    authUser.email?.split("@")[0] ||
+    "User";
 
   return {
     id: authUser.id,
     fullName,
-    email: authUser.email || "",
+    email: profile?.email || authUser.email || "",
     avatar:
+      profile?.avatar_url ||
       metadata.avatar ||
       "https://api.dicebear.com/9.x/thumbs/svg?seed=" + encodeURIComponent(fullName),
-    age: metadata.age || "",
-    phone: metadata.phone || "",
+    age: profile?.age ?? metadata.age ?? "",
+    phone: profile?.phone ?? metadata.phone ?? "",
   };
+}
+
+function normalizeOptionalNumber(value) {
+  if (value === "" || value === null || value === undefined) {
+    return null;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 export function AuthProvider({ children }) {
@@ -30,22 +45,39 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let mounted = true;
 
-    async function initializeAuth() {
-      const { data } = await supabase.auth.getSession();
+    async function syncSession(nextSession) {
       if (!mounted) return;
 
-      const nextSession = data?.session || null;
       setSession(nextSession);
-      setUser(mapSupabaseUser(nextSession?.user || null));
-      setIsLoading(false);
+      if (!nextSession?.user) {
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const profile = await fetchProfile(nextSession.user.id);
+        if (!mounted) return;
+        setUser(mapSupabaseUser(nextSession.user, profile));
+      } catch {
+        if (!mounted) return;
+        setUser(mapSupabaseUser(nextSession.user));
+      } finally {
+        if (mounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    async function initializeAuth() {
+      const { data } = await supabase.auth.getSession();
+      await syncSession(data?.session || null);
     }
 
     initializeAuth();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession || null);
-      setUser(mapSupabaseUser(nextSession?.user || null));
-      setIsLoading(false);
+      void syncSession(nextSession || null);
     });
 
     return () => {
@@ -56,15 +88,16 @@ export function AuthProvider({ children }) {
 
   const signup = async ({ fullName, email, password }) => {
     const normalizedEmail = email.trim().toLowerCase();
+    const trimmedFullName = fullName.trim();
     const avatar =
-      "https://api.dicebear.com/9.x/thumbs/svg?seed=" + encodeURIComponent(fullName || "User");
+      "https://api.dicebear.com/9.x/thumbs/svg?seed=" + encodeURIComponent(trimmedFullName || "User");
 
     const { data, error } = await supabase.auth.signUp({
       email: normalizedEmail,
       password,
       options: {
         data: {
-          fullName: fullName.trim(),
+          fullName: trimmedFullName,
           avatar,
         },
       },
@@ -78,7 +111,14 @@ export function AuthProvider({ children }) {
       throw new Error("Signup successful. Please verify your email, then log in.");
     }
 
-    return mapSupabaseUser(data.user || data.session.user);
+    const authUser = data.user || data.session.user;
+
+    try {
+      const profile = await fetchProfile(authUser.id);
+      return mapSupabaseUser(authUser, profile);
+    } catch {
+      return mapSupabaseUser(authUser);
+    }
   };
 
   const login = async ({ email, password }) => {
@@ -91,7 +131,14 @@ export function AuthProvider({ children }) {
       throw new Error(error.message || "Invalid email or password.");
     }
 
-    return mapSupabaseUser(data.user || data.session?.user);
+    const authUser = data.user || data.session?.user;
+
+    try {
+      const profile = await fetchProfile(authUser.id);
+      return mapSupabaseUser(authUser, profile);
+    } catch {
+      return mapSupabaseUser(authUser);
+    }
   };
 
   const logout = async () => {
@@ -127,12 +174,21 @@ export function AuthProvider({ children }) {
       throw new Error(error.message || "Profile update failed.");
     }
 
+    const profile = await upsertProfile({
+      id: session.user.id,
+      email: nextEmail || data.user?.email || session.user.email || "",
+      full_name: fullName,
+      avatar_url: avatar,
+      age: normalizeOptionalNumber(profilePayload.age),
+      phone: profilePayload.phone?.trim() || null,
+    });
+
     const nextAuthUser = data.user || {
       ...session.user,
       email: updatePayload.email || session.user.email,
       user_metadata: updatePayload.data,
     };
-    setUser(mapSupabaseUser(nextAuthUser));
+    setUser(mapSupabaseUser(nextAuthUser, profile));
   };
 
   const value = useMemo(

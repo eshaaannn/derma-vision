@@ -66,8 +66,8 @@ class ModelService:
 
 
 def map_risk_level(score: float) -> str:
-    if score >= 0.75:
+    if score >= 0.72:
         return "high"
-    if score >= 0.4:
+    if score >= 0.35:
         return "medium"
     return "low"
