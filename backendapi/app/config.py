@@ -7,18 +7,29 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _normalize_origin(origin: str) -> str:
+    return origin.strip().rstrip("/")
+
+
+def _parse_cors_origins(value: str) -> list[str]:
+    return [
+        normalized
+        for raw_origin in value.split(",")
+        if (normalized := _normalize_origin(raw_origin))
+    ]
+
+
 class Settings:
     APP_NAME: str = os.getenv("APP_NAME", "Derma Vision API")
     APP_VERSION: str = os.getenv("APP_VERSION", "0.1.0")
     API_KEY: str | None = os.getenv("API_KEY")
-    CORS_ORIGINS: list[str] = [
-        origin.strip()
-        for origin in os.getenv(
+    CORS_ORIGINS: list[str] = _parse_cors_origins(
+        os.getenv(
             "CORS_ORIGINS",
             "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173",
-        ).split(",")
-        if origin.strip()
-    ]
+        )
+    )
+    CORS_ORIGIN_REGEX: str | None = os.getenv("CORS_ORIGIN_REGEX", "").strip() or None
 
     MAX_IMAGE_BYTES: int = int(os.getenv("MAX_IMAGE_BYTES", str(5 * 1024 * 1024)))
     INFERENCE_TIMEOUT_SECONDS: float = float(os.getenv("INFERENCE_TIMEOUT_SECONDS", "10"))

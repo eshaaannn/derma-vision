@@ -70,6 +70,7 @@ Required Render environment variables:
 
 - `API_KEY`
 - `CORS_ORIGINS`
+- `CORS_ORIGIN_REGEX` (optional)
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_TABLE`
@@ -96,11 +97,18 @@ Copy from `backendapi/.env.example` and set values:
 
 ```env
 API_KEY=hackathon-demo-key
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://your-vercel-site.vercel.app
+CORS_ORIGIN_REGEX=
 SUPABASE_URL=your_supabase_url
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 SUPABASE_TABLE=scan_results
 ENABLE_SCAN_HISTORY=true
 ```
+
+Notes:
+
+- Keep entries in `CORS_ORIGINS` slash-free, for example use `https://your-vercel-site.vercel.app`, not `https://your-vercel-site.vercel.app/`.
+- If you use changing Vercel preview URLs, set `CORS_ORIGIN_REGEX` to a pattern such as `^https://your-project(-[a-z0-9]+)?\.vercel\.app$`.
 
 ### Frontend (`frontend/.env`)
 

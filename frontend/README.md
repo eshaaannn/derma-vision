@@ -45,6 +45,12 @@ Before deploying this frontend to Vercel:
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://your-project.vercel.app
 ```
 
+If you use Vercel preview deployments or frequently changing `*.vercel.app` URLs, also set the backend `CORS_ORIGIN_REGEX`, for example:
+
+```env
+CORS_ORIGIN_REGEX=^https://your-project(-[a-z0-9]+)?\.vercel\.app$
+```
+
 5. Add the Vercel site URL and any custom domain to Supabase Auth redirect settings if you use email confirmation, magic links, or OAuth.
 6. Keep the Vercel SPA rewrite in `vercel.json` so direct refreshes on routes like `/dashboard` or `/scan` do not return 404.
 
