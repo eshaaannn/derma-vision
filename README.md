@@ -38,7 +38,7 @@ Recommended placement:
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.10-3.13
 - Node.js 18+ (or newer LTS)
 - npm
 
@@ -55,6 +55,27 @@ Health check:
 
 API docs:
 - `http://localhost:8000/docs`
+
+## Backend Deploy (Render)
+
+For Render, deploy the backend from `backendapi` as the service root directory.
+
+- Build command: `pip install -r requirements.txt`
+- Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- Health check path: `/health`
+
+This repo includes `.python-version` pinned to `3.13` because newer Render services default to Python `3.14.3`, and the current backend dependency set can fail there while installing `pydantic-core`.
+
+Required Render environment variables:
+
+- `API_KEY`
+- `CORS_ORIGINS`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_TABLE`
+- `ENABLE_SCAN_HISTORY`
+
+If your existing Render service still uses Python `3.14.x`, set `PYTHON_VERSION=3.13.5` in the Render dashboard and redeploy.
 
 ## Frontend Setup (new terminal)
 
