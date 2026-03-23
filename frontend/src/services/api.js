@@ -47,6 +47,12 @@ function normalizeApiError(error) {
     return new Error("Request timed out. Please retry with a stable connection.");
   }
 
+  if (error?.message === "Network Error") {
+    return new Error(
+      `Could not upload to ${apiBaseUrl}. Check that the deployed backend URL is correct and retry.`
+    );
+  }
+
   return error instanceof Error ? error : new Error("Request failed.");
 }
 
@@ -70,7 +76,6 @@ export async function predictLesion(imageFile, userId, onUploadProgress) {
 
   try {
     const response = await apiClient.post("/predict", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
       params: buildScanParams(userId),
       onUploadProgress,
     });
@@ -101,7 +106,6 @@ export async function predictLesionEnhanced(
 
   try {
     const response = await apiClient.post("/predict/enhanced", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
       params: buildScanParams(userId),
       onUploadProgress,
     });
