@@ -1,8 +1,26 @@
 import axios from "axios";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+const apiBaseUrl = rawApiBaseUrl
+  ? rawApiBaseUrl.replace(/\/+$/, "")
+  : import.meta.env.DEV
+    ? "http://localhost:8000"
+    : "";
 const apiKey = import.meta.env.VITE_API_KEY;
 const isProd = import.meta.env.PROD;
+const isLocalApi =
+  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(apiBaseUrl);
+
+if (!apiBaseUrl && isProd) {
+  throw new Error("Missing VITE_API_BASE_URL. Refusing to start in production without a backend URL.");
+}
+if (isProd && isLocalApi) {
+  throw new Error("VITE_API_BASE_URL points to localhost. Set it to your deployed backend URL before shipping.");
+}
+if (!rawApiBaseUrl && import.meta.env.DEV) {
+  // eslint-disable-next-line no-console
+  console.warn("VITE_API_BASE_URL is not set. Falling back to http://localhost:8000 for local development.");
+}
 
 if (!apiKey && isProd) {
   throw new Error("Missing VITE_API_KEY. Refusing to start in production without API authentication.");
