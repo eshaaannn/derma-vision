@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from supabase import Client, create_client
+try:
+    from supabase import Client, create_client
+except Exception:  # pragma: no cover - optional dependency for demo mode
+    Client = Any  # type: ignore[assignment]
+    create_client = None
 
 from .config import get_settings
 
@@ -25,6 +29,10 @@ class SupabaseService:
         if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_ROLE_KEY:
             self.client = None
             self._status = "not_configured"
+            return
+        if create_client is None:
+            self.client = None
+            self._status = "failed"
             return
 
         try:

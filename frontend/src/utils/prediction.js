@@ -1,3 +1,14 @@
+export function humanizePredictionLabel(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "Unknown";
+
+  return normalized
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 export function normalizePredictionResponse(data) {
   const status = data?.status || "success";
   const riskScoreRaw = Number(
@@ -7,11 +18,13 @@ export function normalizePredictionResponse(data) {
   const riskScore = hasRiskScore ? Math.min(1, Math.max(0, riskScoreRaw)) : null;
 
   const predictedClass =
-    data?.predicted_class ||
-    data?.label ||
-    data?.prediction ||
-    data?.top_label ||
-    "Unknown";
+    humanizePredictionLabel(
+      data?.predicted_class ||
+      data?.label ||
+      data?.prediction ||
+      data?.top_label ||
+      "Unknown"
+    );
 
   const explanation =
     data?.simple_explanation ||

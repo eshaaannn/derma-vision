@@ -14,6 +14,7 @@ class Prediction:
     top_label: str
     explainability: dict[str, Any] | None = None
     model_confidence: float | None = None
+    class_probabilities: dict[str, float] | None = None
 
 
 class ModelService:
@@ -57,11 +58,23 @@ class ModelService:
             model_confidence = None
         if model_confidence is not None:
             model_confidence = max(0.0, min(1.0, model_confidence))
+        raw_class_probabilities = result.get("class_probabilities")
+        class_probabilities: dict[str, float] | None = None
+        if isinstance(raw_class_probabilities, dict):
+            parsed_probabilities: dict[str, float] = {}
+            for label, value in raw_class_probabilities.items():
+                try:
+                    parsed_probabilities[str(label)] = max(0.0, min(1.0, float(value)))
+                except (TypeError, ValueError):
+                    continue
+            if parsed_probabilities:
+                class_probabilities = parsed_probabilities
         return Prediction(
             risk_score=risk_score,
             top_label=top_label,
             explainability=explainability,
             model_confidence=model_confidence,
+            class_probabilities=class_probabilities,
         )
 
 

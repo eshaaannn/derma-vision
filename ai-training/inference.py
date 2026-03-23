@@ -27,24 +27,61 @@ BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "model.pt"
 DEVICE = "cpu"
 DISCLAIMER = "This tool is for screening only and does not replace medical diagnosis."
+DEFAULT_LABEL_RISK = {
+    "Suspicious_lesion": 0.92,
+    "Bacterial_infection": 0.58,
+    "Parasitic_infestation": 0.52,
+    "Viral_skin_disease": 0.48,
+    "Fungal_infection": 0.42,
+    "Inflammatory_rash": 0.34,
+    "Benign_lesion": 0.14,
+    "Cancer": 0.92,
+    "Non-Cancer": 0.14,
+}
 
 _MODEL = None
 _TRANSFORM = None
 _MODEL_READY = None
+_CLASS_NAMES = []
+_LABEL_RISK = {}
 
 
-def _build_transform():
+def _load_checkpoint(model_path):
+    try:
+        return torch.load(model_path, map_location=DEVICE, weights_only=False)
+    except TypeError:
+        return torch.load(model_path, map_location=DEVICE)
+
+
+def _build_transform(image_size=224, normalization=None):
+    normalization = normalization or {
+        "mean": [0.485, 0.456, 0.406],
+        "std": [0.229, 0.224, 0.225],
+    }
     return transforms.Compose(
         [
-            transforms.Resize((224, 224)),
+            transforms.Resize((image_size, image_size)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            transforms.Normalize(mean=normalization["mean"], std=normalization["std"]),
         ]
     )
 
 
+def _build_model(num_classes):
+    model = models.efficientnet_b0(weights=None)
+    model.classifier[1] = torch.nn.Linear(1280, num_classes)
+    return model
+
+
+def _default_label_risk(class_names):
+    label_risk = {}
+    for label in class_names:
+        label_risk[label] = DEFAULT_LABEL_RISK.get(label, 0.4)
+    return label_risk
+
+
 def _ensure_model_ready():
-    global _MODEL, _TRANSFORM, _MODEL_READY
+    global _MODEL, _TRANSFORM, _MODEL_READY, _CLASS_NAMES, _LABEL_RISK
     if _MODEL_READY is not None:
         return _MODEL_READY
 
@@ -57,13 +94,28 @@ def _ensure_model_ready():
         return _MODEL_READY
 
     try:
-        model = models.efficientnet_b0(weights=None)
-        model.classifier[1] = torch.nn.Linear(1280, 2)
-        model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+        checkpoint = _load_checkpoint(MODEL_PATH)
+        if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+            class_names = checkpoint.get("class_names") or ["Benign_lesion", "Suspicious_lesion"]
+            label_risk = checkpoint.get("label_risk") or _default_label_risk(class_names)
+            image_size = int(checkpoint.get("image_size", 224))
+            normalization = checkpoint.get("normalization")
+            state_dict = checkpoint["state_dict"]
+        else:
+            class_names = ["Non-Cancer", "Cancer"]
+            label_risk = _default_label_risk(class_names)
+            image_size = 224
+            normalization = None
+            state_dict = checkpoint
+
+        model = _build_model(len(class_names))
+        model.load_state_dict(state_dict)
         model.eval()
 
         _MODEL = model
-        _TRANSFORM = _build_transform()
+        _CLASS_NAMES = list(class_names)
+        _LABEL_RISK = dict(label_risk)
+        _TRANSFORM = _build_transform(image_size=image_size, normalization=normalization)
         _MODEL_READY = True
     except Exception:
         _MODEL_READY = False
@@ -77,7 +129,7 @@ def compute_symptom_score(symptoms):
         score += 0.2
     if symptoms.get("bleeding"):
         score += 0.2
-    if symptoms.get("irregular_borders"):
+    if symptoms.get("irregular_borders") or symptoms.get("irregular_border"):
         score += 0.15
     if symptoms.get("duration_over_6_weeks"):
         score += 0.1
@@ -90,18 +142,21 @@ def _fallback_predict(image_bytes, symptoms=None):
     digest = hashlib.sha256(image_bytes).hexdigest()
     base_score = int(digest[:8], 16) / 0xFFFFFFFF
     symptom_score = compute_symptom_score(symptoms or {})
-    final_risk = max(0.0, min(1.0, 0.8 * base_score + 0.2 * symptom_score))
+    final_risk = max(0.0, min(1.0, 0.85 * base_score + 0.15 * symptom_score))
     confidence = 0.65
 
-    if final_risk >= 0.75:
+    if final_risk >= 0.72:
         risk_level = "High"
-        decision = "High risk signal detected. Dermatologist consultation recommended."
-    elif final_risk >= 0.4:
+        top_label = "Suspicious_lesion"
+        decision = "High-risk visual signal detected. Prompt dermatologist review is recommended."
+    elif final_risk >= 0.35:
         risk_level = "Medium"
-        decision = "Moderate risk signal detected. Clinical follow-up advised."
+        top_label = "Inflammatory_rash"
+        decision = "Moderate-risk visual signal detected. Clinical follow-up is advised."
     else:
         risk_level = "Low"
-        decision = "Low risk signal. Continue routine monitoring."
+        top_label = "Benign_lesion"
+        decision = "Low-risk visual signal detected. Continue routine monitoring."
 
     return {
         "cancer_probability": round(float(base_score), 4),
@@ -111,6 +166,8 @@ def _fallback_predict(image_bytes, symptoms=None):
         "decision": decision,
         "disclaimer": DISCLAIMER,
         "heatmap": None,
+        "top_label": top_label,
+        "predicted_class": top_label,
     }
 
 
@@ -134,6 +191,40 @@ def _build_heatmap(image, input_tensor, predicted_class):
         return None
 
 
+def _risk_from_probabilities(probabilities):
+    score = 0.0
+    class_probabilities = {}
+    for index, label in enumerate(_CLASS_NAMES):
+        probability = float(probabilities[index].item())
+        class_probabilities[label] = round(probability, 4)
+        score += probability * float(_LABEL_RISK.get(label, 0.4))
+
+    suspicious_probability = 0.0
+    for label, probability in class_probabilities.items():
+        normalized = label.strip().lower()
+        if normalized in {"suspicious_lesion", "cancer"}:
+            suspicious_probability += probability
+
+    return min(max(score, 0.0), 1.0), suspicious_probability, class_probabilities
+
+
+def _decision_for_label(top_label, risk_level):
+    normalized = (top_label or "").strip().lower()
+    if risk_level == "High":
+        return "High-risk pattern detected. Prompt in-person dermatology review is recommended."
+    if "fung" in normalized:
+        return "Pattern is more consistent with fungal skin disease. Clinical review is still advised if it spreads or persists."
+    if "bacter" in normalized:
+        return "Pattern is more consistent with bacterial skin infection. Seek medical review if it becomes painful, warm, or draining."
+    if "viral" in normalized or "parasit" in normalized:
+        return "Pattern suggests an infectious skin condition. Clinical evaluation is advised if symptoms worsen or spread."
+    if "inflamm" in normalized:
+        return "Pattern is more consistent with an inflammatory rash. Monitor symptoms and arrange review if it does not improve."
+    if "benign" in normalized:
+        return "Pattern appears lower risk. Continue monitoring for visible change."
+    return "Moderate-risk pattern detected. Clinical follow-up is advised."
+
+
 def predict(image_path, symptoms=None):
     image_path = Path(image_path)
     if not image_path.is_absolute():
@@ -150,43 +241,43 @@ def predict(image_path, symptoms=None):
 
     with torch.no_grad():
         output = _MODEL(input_tensor)
-        probabilities = torch.softmax(output, dim=1)
-        confidence_tensor, predicted = torch.max(probabilities, 1)
+        probabilities = torch.softmax(output, dim=1)[0]
+        confidence_tensor, predicted = torch.max(probabilities, 0)
 
-    cancer_prob = probabilities[0][1].item()
-    confidence = confidence_tensor.item()
-
-    high_threshold = 0.75
-    low_threshold = 0.40
+    top_label = _CLASS_NAMES[predicted.item()]
+    confidence = float(confidence_tensor.item())
+    risk_score, suspicious_probability, class_probabilities = _risk_from_probabilities(probabilities)
 
     if symptoms:
         symptom_score = compute_symptom_score(symptoms)
-        final_risk = (0.7 * cancer_prob) + (0.3 * symptom_score)
+        final_risk = max(0.0, min(1.0, 0.85 * risk_score + 0.15 * symptom_score))
     else:
-        final_risk = cancer_prob
+        final_risk = risk_score
 
-    if confidence < 0.5:
-        risk_level = "Uncertain"
-        decision = "Model confidence is low. Professional evaluation recommended."
-        final_risk = cancer_prob
-    elif final_risk > high_threshold:
+    if confidence < 0.45:
+        risk_level = "Medium" if final_risk >= 0.35 else "Low"
+        decision = "Model confidence is limited. Professional review is recommended if the lesion changes or persists."
+    elif final_risk >= 0.72:
         risk_level = "High"
-        decision = "High cancer risk detected. Immediate dermatologist consultation recommended."
-    elif final_risk < low_threshold:
-        risk_level = "Low"
-        decision = "Lesion appears low risk. Monitor for changes."
-    else:
+        decision = _decision_for_label(top_label, risk_level)
+    elif final_risk >= 0.35:
         risk_level = "Medium"
-        decision = "Moderate risk detected. Dermatologist consultation advised."
+        decision = _decision_for_label(top_label, risk_level)
+    else:
+        risk_level = "Low"
+        decision = _decision_for_label(top_label, risk_level)
 
     heatmap_base64 = _build_heatmap(image, input_tensor, predicted.item())
 
     return {
-        "cancer_probability": round(float(cancer_prob), 4),
+        "cancer_probability": round(float(suspicious_probability), 4),
         "model_confidence": round(float(confidence), 4),
         "final_risk_score": round(float(final_risk), 4),
         "risk_level": risk_level,
         "decision": decision,
         "disclaimer": DISCLAIMER,
         "heatmap": heatmap_base64,
+        "top_label": top_label,
+        "predicted_class": top_label,
+        "class_probabilities": class_probabilities,
     }

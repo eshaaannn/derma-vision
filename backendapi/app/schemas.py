@@ -88,3 +88,79 @@ class ScanRecord(BaseModel):
 
 class ScanHistoryResponse(BaseModel):
     items: list[ScanRecord]
+
+
+class ConditionScore(BaseModel):
+    key: str
+    name: str
+    score: float = Field(ge=0.0, le=1.0)
+
+
+class TextSymptomSignals(BaseModel):
+    itching: bool = False
+    pain: bool = False
+    bleeding: bool = False
+    growth: bool = False
+    spreading: bool = False
+    pus: bool = False
+    fever: bool = False
+
+
+class ExtractedTextSignals(BaseModel):
+    duration: Literal["short", "long", "unknown"]
+    duration_days: int | None = None
+    symptoms: TextSymptomSignals
+    severity: Literal["mild", "moderate", "severe", "unknown"]
+    progression: Literal["stable", "increasing", "spreading", "unknown"]
+
+
+class UploadSessionResponse(BaseModel):
+    session_id: str
+    created_at: datetime
+    image_count: int = Field(ge=2, le=3)
+    description_received: bool
+
+
+class SessionRequest(BaseModel):
+    session_id: str
+
+
+class AnalyzeSessionResponse(BaseModel):
+    session_id: str
+    image_count: int = Field(ge=1)
+    consistency: Literal["consistent", "needs_retake"]
+    conditions: list[ConditionScore]
+    text_signals: ExtractedTextSignals
+    message: str | None = None
+
+
+class ScreeningQuestion(BaseModel):
+    key: str
+    question: str
+    condition: str
+    answer_type: Literal["yes_no"] = "yes_no"
+
+
+class QuestionsSessionResponse(BaseModel):
+    session_id: str
+    questions: list[ScreeningQuestion]
+
+
+class SubmitAnswersRequest(BaseModel):
+    session_id: str
+    answers: dict[str, Any] = Field(default_factory=dict)
+
+
+class SubmitAnswersResponse(BaseModel):
+    session_id: str
+    status: Literal["completed"]
+    result_ready: bool = True
+    scan_id: str | None = None
+
+
+class ScreeningResultResponse(BaseModel):
+    risk_level: Literal["Low", "Medium", "High"]
+    confidence: Literal["Low", "Medium", "High"]
+    possible_conditions: list[str]
+    explanation: str
+    next_steps: list[str]
