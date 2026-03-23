@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import { getRiskScore } from "../utils/prediction";
+import { getRiskScore, humanizePredictionLabel } from "../utils/prediction";
 
 function toTitleCase(value, fallback = "Low") {
   const normalized = String(value || "").trim().toLowerCase();
@@ -23,7 +23,7 @@ function normalizeAiImageBreakdown(items, fallbackLabel) {
 
   return items.map((item, index) => ({
     imageNumber: Number(item?.image_number) || index + 1,
-    predictedClass: item?.predicted_class || fallbackLabel,
+    predictedClass: humanizePredictionLabel(item?.predicted_class || fallbackLabel),
     riskLevel: toTitleCase(item?.risk_level),
   }));
 }
@@ -94,7 +94,7 @@ export function mapScanRowToScan(row) {
     : [];
   const primaryImage = metadata.image_preview || images[0] || null;
   const riskLevel = toTitleCase(row?.risk_level);
-  const predictedClass = row?.top_label || "Unknown";
+  const predictedClass = humanizePredictionLabel(row?.top_label || "Unknown");
   const followupItems = Array.isArray(metadata.followup_items)
     ? metadata.followup_items
     : buildFallbackFollowupItems(metadata.followup_answers);

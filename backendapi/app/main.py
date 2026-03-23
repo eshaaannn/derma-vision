@@ -17,6 +17,7 @@ from PIL import Image
 from .config import Settings, get_settings
 from .db import SupabaseService
 from .errors import AppError, add_error_handlers
+from .image_model import ImageInput, analyze_images
 from .intelligence import (
     aggregate_scores,
     apply_context_weighting,
@@ -29,14 +30,28 @@ from .intelligence import (
     validate_context,
 )
 from .model import ModelService, map_risk_level
+from .question_engine import build_questions, normalize_answers
+from .response_generator import build_screening_response
+from .risk_engine import evaluate_risk
 from .schemas import (
+    AnalyzeSessionResponse,
+    ConditionScore,
+    ExtractedTextSignals,
     EnhancedDetails,
     FollowupResponse,
     HealthResponse,
     PredictEnhancedResponse,
     PredictResponse,
+    QuestionsSessionResponse,
     ScanHistoryResponse,
+    ScreeningResultResponse,
+    SessionRequest,
+    SubmitAnswersRequest,
+    SubmitAnswersResponse,
+    UploadSessionResponse,
 )
+from .session_store import SessionStore
+from .text_extractor import extract_text_signals
 from .validation import analyze_image_quality, validate_image
 
 DISCLAIMER = "This is a screening result, not a diagnosis. Please consult a dermatologist."
@@ -56,6 +71,7 @@ app.add_middleware(
 
 model_service = ModelService()
 db_service = SupabaseService()
+session_store = SessionStore()
 
 
 @app.middleware("http")
@@ -190,6 +206,186 @@ def _build_preview_data_url(image_bytes: bytes, max_dimension: int = 640, qualit
             return f"data:image/jpeg;base64,{encoded}"
     except Exception:
         return None
+
+
+def _get_session_or_404(session_id: str):
+    session = session_store.get_session(session_id)
+    if session is None:
+        raise AppError("SESSION_NOT_FOUND", "Screening session not found.", 404)
+    return session
+
+
+async def _ensure_session_analysis(session) -> None:
+    if session.analysis is not None and session.text_signals is not None:
+        return
+
+    image_inputs = [
+        ImageInput(
+            filename=image["filename"],
+            content_type=image.get("content_type"),
+            image_bytes=image["image_bytes"],
+        )
+        for image in session.images
+    ]
+    session.analysis = await analyze_images(model_service, settings, image_inputs)
+    session.text_signals = extract_text_signals(session.description)
+
+
+def _store_mvp_scan(session) -> str | None:
+    if session.analysis is None or session.result is None or session.risk_details is None:
+        return None
+
+    payload = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "risk_level": session.result["risk_level"].lower(),
+        "risk_score": session.risk_details["risk_score"],
+        "top_label": session.analysis["primary_condition"],
+        "model_version": settings.MODEL_VERSION,
+        "status": "success",
+        "metadata": {
+            "session_id": session.session_id,
+            "image_count": session.analysis["image_count"],
+            "image_previews": [image.get("preview") for image in session.images if image.get("preview")],
+            "context": {"context_text": session.description},
+            "text_signals": session.text_signals,
+            "followup_items": session.questions,
+            "followup_questions": [item["question"] for item in session.questions],
+            "followup_answers": session.answers,
+            "possible_conditions": session.result["possible_conditions"],
+            "simple_explanation": session.result["explanation"],
+            "recommended_steps": session.result["next_steps"],
+            "confidence": session.result["confidence"],
+            "risk_engine": session.risk_details,
+            "analysis": session.analysis,
+        },
+    }
+
+    try:
+        return db_service.insert_scan(payload)
+    except Exception:
+        return None
+
+
+@app.post("/upload", response_model=UploadSessionResponse, dependencies=[Depends(require_api_key)])
+async def upload_screening(
+    images: list[UploadFile] = File(...),
+    description: str = Form(...),
+):
+    if not model_service.loaded:
+        raise AppError("MODEL_NOT_READY", "Model is not loaded.", 503)
+
+    cleaned_description = description.strip()
+    if not cleaned_description:
+        raise AppError("INVALID_DESCRIPTION", "A short description is required.", 422)
+    if len(cleaned_description) > 1500:
+        raise AppError("INVALID_DESCRIPTION", "Description must be 1500 characters or fewer.", 422)
+    if not 2 <= len(images) <= 3:
+        raise AppError("INVALID_IMAGE_COUNT", "Please upload 2 or 3 images for screening.", 400)
+
+    stored_images: list[dict[str, str | bytes | None]] = []
+    for upload in images:
+        image_bytes = await upload.read()
+        validate_image(image_bytes, settings.MAX_IMAGE_BYTES)
+        stored_images.append(
+            {
+                "filename": upload.filename or "unknown",
+                "content_type": upload.content_type,
+                "image_bytes": image_bytes,
+                "preview": _build_preview_data_url(image_bytes),
+            }
+        )
+
+    session = session_store.create_session(cleaned_description, stored_images)
+    return UploadSessionResponse(
+        session_id=session.session_id,
+        created_at=session.created_at,
+        image_count=len(session.images),
+        description_received=True,
+    )
+
+
+@app.post("/analyze", response_model=AnalyzeSessionResponse, dependencies=[Depends(require_api_key)])
+async def analyze_screening(request: SessionRequest):
+    if not model_service.loaded:
+        raise AppError("MODEL_NOT_READY", "Model is not loaded.", 503)
+
+    session = _get_session_or_404(request.session_id)
+    await _ensure_session_analysis(session)
+
+    message = None
+    if session.analysis["consistency"] == "needs_retake":
+        message = "Image results are less consistent than expected. Retaking clearer photos is recommended."
+
+    return AnalyzeSessionResponse(
+        session_id=session.session_id,
+        image_count=session.analysis["image_count"],
+        consistency=session.analysis["consistency"],
+        conditions=[ConditionScore(**condition) for condition in session.analysis["conditions"]],
+        text_signals=ExtractedTextSignals(**session.text_signals),
+        message=message,
+    )
+
+
+@app.post("/questions", response_model=QuestionsSessionResponse, dependencies=[Depends(require_api_key)])
+async def screening_questions(request: SessionRequest):
+    session = _get_session_or_404(request.session_id)
+    await _ensure_session_analysis(session)
+
+    if not session.questions:
+        session.questions = build_questions(session.analysis["conditions"], session.text_signals or {})
+
+    return QuestionsSessionResponse(
+        session_id=session.session_id,
+        questions=session.questions,
+    )
+
+
+@app.post("/submit-answers", response_model=SubmitAnswersResponse, dependencies=[Depends(require_api_key)])
+async def submit_screening_answers(request: SubmitAnswersRequest):
+    session = _get_session_or_404(request.session_id)
+    await _ensure_session_analysis(session)
+
+    if not session.questions:
+        session.questions = build_questions(session.analysis["conditions"], session.text_signals or {})
+
+    session.answers = normalize_answers(request.answers)
+    session.risk_details = evaluate_risk(
+        image_analysis=session.analysis,
+        text_signals=session.text_signals or {},
+        answers=session.answers,
+    )
+    response_payload = build_screening_response(
+        image_analysis=session.analysis,
+        text_signals=session.text_signals or {},
+        answers=session.answers,
+        risk_result=session.risk_details,
+        question_count=len(session.questions),
+    )
+    session.result = {
+        "risk_level": response_payload["risk_level"],
+        "confidence": response_payload["confidence"],
+        "possible_conditions": response_payload["possible_conditions"],
+        "explanation": response_payload["explanation"],
+        "next_steps": response_payload["next_steps"],
+    }
+
+    if session.scan_id is None:
+        session.scan_id = _store_mvp_scan(session)
+
+    return SubmitAnswersResponse(
+        session_id=session.session_id,
+        status="completed",
+        result_ready=True,
+        scan_id=session.scan_id,
+    )
+
+
+@app.get("/result", response_model=ScreeningResultResponse, dependencies=[Depends(require_api_key)])
+async def screening_result(session_id: str = Query(...)):
+    session = _get_session_or_404(session_id)
+    if session.result is None:
+        raise AppError("RESULT_NOT_READY", "Submit answers before requesting a result.", 409)
+    return ScreeningResultResponse(**session.result)
 
 
 @app.post("/predict/enhanced", response_model=PredictEnhancedResponse, dependencies=[Depends(require_api_key)])
