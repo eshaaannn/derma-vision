@@ -22,6 +22,7 @@ def _fallback_class_probabilities(top_label: str) -> dict[str, float]:
         "Fungal_infection": 0.02,
         "Bacterial_infection": 0.02,
         "Inflammatory_rash": 0.02,
+        "Low_risk": 0.02,
         "Suspicious_lesion": 0.02,
         "Benign_lesion": 0.02,
         "Parasitic_infestation": 0.02,
@@ -37,6 +38,8 @@ def _fallback_class_probabilities(top_label: str) -> dict[str, float]:
         scores["Parasitic_infestation"] = 0.82
     elif "rash" in normalized or "inflamm" in normalized:
         scores["Inflammatory_rash"] = 0.82
+    elif "low_risk" in normalized or "low risk" in normalized or "acne" in normalized or "pimple" in normalized:
+        scores["Low_risk"] = 0.82
     elif "suspicious" in normalized or "melan" in normalized or "cancer" in normalized:
         scores["Suspicious_lesion"] = 0.82
     else:

@@ -54,6 +54,7 @@ class PredictEnhancedResponse(BaseModel):
     risk_score: float | None = Field(default=None, ge=0.0, le=1.0)
     top_label: str | None = None
     possible_conditions: list[str] = Field(default_factory=list)
+    recommended_steps: list[str] = Field(default_factory=list)
     risk_message: str | None = None
     simple_explanation: str | None = None
     recommendation: str | None = None
