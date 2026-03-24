@@ -27,6 +27,7 @@ DEFAULT_LABEL_RISK = {
     "Viral_skin_disease": 0.48,
     "Fungal_infection": 0.42,
     "Inflammatory_rash": 0.34,
+    "Low_risk": 0.08,
     "Benign_lesion": 0.14,
 }
 

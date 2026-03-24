@@ -622,7 +622,7 @@ function ScanPage() {
                 Follow-up Questions (Step 2 of 2)
               </h3>
               <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                These questions are generated from your image pattern and submitted clinical context.
+                A few short questions will help improve the final result.
               </p>
             </div>
 
@@ -671,7 +671,7 @@ function ScanPage() {
               loading={isAnalyzing}
               disabled={!followupComplete}
             >
-              Submit Follow-up Answers and Get Final Prediction
+              Get Final Prediction
             </Button>
           </div>
         </Card>

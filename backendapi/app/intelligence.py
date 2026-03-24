@@ -10,44 +10,52 @@ MAX_FOLLOWUP_QUESTIONS = 6
 
 FOLLOWUP_QUESTION_BANK: dict[str, list[tuple[str, str]]] = {
     "oncologic": [
-        ("previous_skin_cancer", "Have you ever been diagnosed with skin cancer before?"),
-        ("family_history_skin_cancer", "Has any blood relative had melanoma or skin cancer?"),
-        ("severe_sunburn_history", "Have you had repeated severe sunburns in the same body area?"),
-        ("immunosuppression", "Are you immunosuppressed or on long-term steroid therapy?"),
-        ("non_healing", "Has this lesion failed to heal for more than 3 weeks?"),
-        ("new_vs_old_lesion", "Is this lesion new or different from your other moles?"),
+        ("previous_skin_cancer", "Have you had skin cancer before?"),
+        ("family_history_skin_cancer", "Has anyone in your family had skin cancer?"),
+        ("severe_sunburn_history", "Have you had bad sunburns here or in this area before?"),
+        ("immunosuppression", "Do you have low immunity or take long-term steroids?"),
+        ("non_healing", "Has this spot not healed for over 3 weeks?"),
+        ("new_vs_old_lesion", "Is this spot new or unlike your other moles?"),
     ],
     "fungal": [
-        ("contact_history", "Did close contacts have similar ring-like lesions recently?"),
-        ("pet_exposure", "Any recent contact with pets/animals with skin disease?"),
-        ("sweating_occlusion", "Does sweating or tight clothing make the patch worse?"),
-        ("steroid_cream_use", "Did steroid creams worsen this patch after temporary relief?"),
-        ("immune_risk", "Do you have diabetes or immunity issues that worsen fungal infections?"),
-        ("family_history_skin_cancer", "Any close family history of skin cancer or melanoma?"),
+        ("contact_history", "Has anyone close to you had a similar rash?"),
+        ("pet_exposure", "Have you been around a pet or animal with a skin problem?"),
+        ("sweating_occlusion", "Does sweat or tight clothing make it worse?"),
+        ("steroid_cream_use", "Did a steroid cream make it worse?"),
+        ("immune_risk", "Do you have diabetes or low immunity?"),
+        ("family_history_skin_cancer", "Has anyone in your family had skin cancer?"),
     ],
     "bacterial": [
-        ("fever", "Any fever, chills, or feeling unwell with this lesion?"),
-        ("pus", "Is there pus or yellow crust present?"),
-        ("contact_history", "Any recent local trauma, shaving cuts, or insect bites there?"),
+        ("fever", "Do you have fever or chills with it?"),
+        ("pus", "Is there pus or yellow crust?"),
+        ("contact_history", "Did it start after a cut, bite, or shaving?"),
         ("immune_risk", "Do you have diabetes or low immunity?"),
-        ("non_healing", "Has this lesion persisted despite basic topical treatment?"),
-        ("family_history_skin_cancer", "Any close family history of skin cancer or melanoma?"),
+        ("non_healing", "Has it stayed the same even after basic treatment?"),
+        ("family_history_skin_cancer", "Has anyone in your family had skin cancer?"),
     ],
     "inflammatory": [
-        ("trigger_products", "Did new soaps/cosmetics/detergents trigger this lesion?"),
-        ("allergy_history", "Do you have eczema or allergy history?"),
-        ("photosensitivity", "Does sunlight clearly worsen this lesion?"),
-        ("night_itch", "Does itching worsen at night?"),
-        ("non_healing", "Has this lesion persisted beyond 3 weeks without improvement?"),
-        ("family_history_skin_cancer", "Any close family history of skin cancer or melanoma?"),
+        ("trigger_products", "Did a new soap, cream, or detergent start this?"),
+        ("allergy_history", "Do you have eczema or allergies?"),
+        ("photosensitivity", "Does sunlight make it worse?"),
+        ("night_itch", "Is the itching worse at night?"),
+        ("non_healing", "Has it lasted over 3 weeks without improving?"),
+        ("family_history_skin_cancer", "Has anyone in your family had skin cancer?"),
+    ],
+    "low_risk": [
+        ("pain", "Is it painful or sore?"),
+        ("pus", "Is there pus or a white or yellow head?"),
+        ("spreading", "Is it spreading or are more bumps appearing?"),
+        ("non_healing", "Has it stayed for over 3 weeks?"),
+        ("fever", "Do you also have fever or feel unwell?"),
+        ("trigger_products", "Did it start after a new skin product?"),
     ],
     "general": [
-        ("non_healing", "Has this lesion not healed for over 3 weeks?"),
-        ("new_vs_old_lesion", "Is this lesion new or different from your usual moles?"),
-        ("severe_sunburn_history", "Have you had frequent severe sunburns?"),
-        ("immunosuppression", "Are you immunosuppressed or on long-term immunosuppressants?"),
-        ("previous_skin_cancer", "Have you had skin cancer in the past?"),
-        ("family_history_skin_cancer", "Any close family history of skin cancer or melanoma?"),
+        ("non_healing", "Has this spot lasted over 3 weeks?"),
+        ("new_vs_old_lesion", "Is this spot new or different from your usual skin marks?"),
+        ("severe_sunburn_history", "Have you had repeated bad sunburns?"),
+        ("immunosuppression", "Do you have low immunity or take immune-suppressing medicine?"),
+        ("previous_skin_cancer", "Have you had skin cancer before?"),
+        ("family_history_skin_cancer", "Has anyone in your family had skin cancer?"),
     ],
 }
 
@@ -80,7 +88,7 @@ BOOLEAN_CONTEXT_KEYS = (
     "night_itch",
 )
 
-PRIMARY_CONCERNS = {"cancer", "fungal", "bacterial", "inflammatory", "unsure"}
+PRIMARY_CONCERNS = {"cancer", "fungal", "bacterial", "inflammatory", "low_risk", "unsure"}
 
 TEXT_SIGNAL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "itching": ("itch", "itchy", "pruritus"),
@@ -115,6 +123,7 @@ TEXT_CONCERN_KEYWORDS: dict[str, tuple[str, ...]] = {
     "fungal": ("fungal", "ringworm", "tinea", "athlete's foot"),
     "bacterial": ("bacterial", "impetigo", "folliculitis"),
     "inflammatory": ("eczema", "dermatitis", "allergy rash", "rash"),
+    "low_risk": ("acne", "pimple", "whitehead", "blackhead"),
     "cancer": ("melanoma", "skin cancer", "suspicious mole"),
 }
 
@@ -140,6 +149,7 @@ STRONG_SIGNAL_KEYS: dict[str, tuple[str, ...]] = {
     ),
     "bacterial": ("pain", "fever", "pus"),
     "inflammatory": ("itching", "scaling", "photosensitivity", "trigger_products", "allergy_history", "night_itch"),
+    "low_risk": ("pain", "pus", "spreading", "trigger_products"),
 }
 
 CONDITION_SUGGESTION_BANK: dict[str, tuple[str, ...]] = {
@@ -162,6 +172,11 @@ CONDITION_SUGGESTION_BANK: dict[str, tuple[str, ...]] = {
         "Eczema or dermatitis flare",
         "Inflammatory rash",
         "Allergic or irritant skin reaction",
+    ),
+    "low_risk": (
+        "Low-risk acne-like bump",
+        "Mild irritated follicle or pimple",
+        "Benign skin change that can be watched",
     ),
     "general": (
         "Benign-looking skin lesion",
@@ -187,6 +202,8 @@ def _humanize_condition_label(label: str | None) -> str | None:
         "possible fungal infection": "Fungal rash such as ringworm (tinea)",
         "possible inflammatory rash": "Inflammatory rash or dermatitis",
         "possible bacterial infection": "Bacterial skin infection",
+        "low risk": "Low-risk skin change",
+        "low_risk": "Low-risk skin change",
     }
     if normalized in replacements:
         return replacements[normalized]
@@ -385,6 +402,8 @@ def _label_bucket_and_weight(label: str) -> tuple[str, float]:
         return "bacterial", 2.2
     if any(token in label for token in ("rash", "eczema", "dermatitis", "inflamm")):
         return "inflammatory", 2.0
+    if any(token in label for token in ("low_risk", "low risk", "acne", "pimple", "comed")):
+        return "low_risk", 2.0
     if any(token in label for token in ("melan", "cancer")):
         return "oncologic", 2.6
     if "suspicious" in label:
@@ -410,18 +429,21 @@ def infer_condition_bucket(top_label: str | None, context: dict[str, Any] | None
         "fungal": 0.0,
         "bacterial": 0.0,
         "inflammatory": 0.0,
+        "low_risk": 0.0,
         "general": 0.0,
     }
     bucket_scores[label_bucket] += label_weight
 
     if concern in {"fungal", "bacterial", "inflammatory"}:
         bucket_scores[concern] += concern_weight
+    elif concern == "low_risk":
+        bucket_scores["low_risk"] += concern_weight
     elif concern == "cancer":
         bucket_scores["oncologic"] += concern_weight
     elif concern == "unsure":
         bucket_scores["general"] += 1.0
 
-    for bucket in ("oncologic", "fungal", "bacterial", "inflammatory"):
+    for bucket in ("oncologic", "fungal", "bacterial", "inflammatory", "low_risk"):
         bucket_scores[bucket] += _signal_strength(enriched_context, bucket) * 0.95
 
     fungal_strength = _signal_strength(enriched_context, "fungal")
@@ -593,7 +615,17 @@ def apply_context_weighting(score: float, context: dict[str, Any], top_label: st
         if context.get("pus") is True:
             adjustment += 0.02
 
-    if condition_bucket in {"fungal", "bacterial", "inflammatory"}:
+    if condition_bucket == "low_risk":
+        if context.get("spreading") is True:
+            adjustment += 0.02
+        if context.get("pain") is True:
+            adjustment += 0.02
+        if context.get("pus") is True:
+            adjustment += 0.01
+        if context.get("non_healing") is True:
+            adjustment += 0.03
+
+    if condition_bucket in {"fungal", "bacterial", "inflammatory", "low_risk"}:
         adjustment = max(-0.18, min(0.16, adjustment))
     else:
         adjustment = max(-0.12, min(0.24, adjustment))
@@ -608,8 +640,15 @@ def apply_context_weighting(score: float, context: dict[str, Any], top_label: st
     if condition_bucket == "inflammatory":
         if context.get("itching") is True and (context.get("scaling") is True or context.get("trigger_products") is True):
             final_score = max(final_score, 0.38)
+    if condition_bucket == "low_risk":
+        warning_signs = any(
+            context.get(key) is True
+            for key in ("bleeding", "rapid_growth", "non_healing", "irregular_border", "multi_color", "fever")
+        )
+        if not warning_signs:
+            final_score = min(final_score, 0.3)
 
-    if condition_bucket in {"fungal", "bacterial", "inflammatory"} and not (
+    if condition_bucket in {"fungal", "bacterial", "inflammatory", "low_risk"} and not (
         context.get("bleeding") and context.get("rapid_growth")
     ):
         final_score = min(final_score, 0.68)
@@ -657,6 +696,9 @@ def build_followup_questions(
     elif condition_bucket == "inflammatory":
         high_priority_keys = {"trigger_products", "allergy_history", "photosensitivity", "night_itch"}
         medium_priority_keys = {"non_healing", "family_history_skin_cancer"}
+    elif condition_bucket == "low_risk":
+        high_priority_keys = {"pain", "pus", "spreading", "non_healing"}
+        medium_priority_keys = {"fever", "trigger_products"}
     else:
         high_priority_keys = {"non_healing", "new_vs_old_lesion", "family_history_skin_cancer"}
         medium_priority_keys = {"severe_sunburn_history", "immunosuppression"}
@@ -808,14 +850,113 @@ def build_personalized_summary(
     return f"This appears lower risk for now and is most consistent with {lead_condition.lower()}."
 
 
+def _normalize_recommendation_label(top_label: str | None) -> str | None:
+    normalized = str(top_label or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not normalized:
+        return None
+    canonical_labels = {
+        "suspicious_lesion": "Suspicious_lesion",
+        "benign_lesion": "Benign_lesion",
+        "low_risk": "Low_risk",
+        "fungal_infection": "Fungal_infection",
+        "bacterial_infection": "Bacterial_infection",
+        "inflammatory_rash": "Inflammatory_rash",
+        "viral_skin_disease": "Viral_skin_disease",
+        "parasitic_infestation": "Parasitic_infestation",
+    }
+    if normalized in canonical_labels:
+        return canonical_labels[normalized]
+    if any(token in normalized for token in ("suspicious", "melan", "cancer")):
+        return "Suspicious_lesion"
+    if any(token in normalized for token in ("fung", "tinea", "ringworm")):
+        return "Fungal_infection"
+    if any(token in normalized for token in ("bacter", "impetigo", "follicul")):
+        return "Bacterial_infection"
+    if any(token in normalized for token in ("viral", "wart", "blister")):
+        return "Viral_skin_disease"
+    if any(token in normalized for token in ("parasit", "scab")):
+        return "Parasitic_infestation"
+    if any(token in normalized for token in ("rash", "eczema", "dermatitis", "inflamm")):
+        return "Inflammatory_rash"
+    if any(token in normalized for token in ("low_risk", "acne", "pimple", "comed")):
+        return "Low_risk"
+    if any(token in normalized for token in ("benign", "nevus", "mole")):
+        return "Benign_lesion"
+    return None
+
+
+def _label_specific_recommended_steps(
+    top_label: str | None,
+    condition_bucket: str,
+) -> list[str]:
+    normalized_label = _normalize_recommendation_label(top_label)
+
+    label_step_bank: dict[str, list[str]] = {
+        "Suspicious_lesion": [
+            "Arrange an in-person dermatologist review soon, even if the spot is not painful.",
+            "Track any ABCDE change: asymmetry, border, color, diameter, or visible evolution.",
+            "Do not self-treat it with acid, steroid, or bleaching creams.",
+        ],
+        "Benign_lesion": [
+            "Watch for change in size, shape, color, pain, or bleeding.",
+            "Take one clear baseline photo and compare it every 3-4 weeks.",
+            "Avoid rubbing, scratching, or picking the area.",
+        ],
+        "Low_risk": [
+            "Keep the area clean and avoid squeezing or picking it.",
+            "Use gentle skin care and avoid harsh scrubs or irritating products.",
+            "Seek review if it becomes painful, spreads, or keeps coming back.",
+        ],
+        "Fungal_infection": [
+            "Keep the area dry and change sweaty clothes quickly.",
+            "Avoid sharing towels, clothing, or bedding until it settles.",
+            "Use antifungal treatment only as advised by a clinician or pharmacist.",
+        ],
+        "Bacterial_infection": [
+            "Keep the area clean and do not squeeze, pick, or shave over it.",
+            "Seek review sooner if redness, warmth, swelling, or drainage increases.",
+            "Wash hands before and after touching the area.",
+        ],
+        "Inflammatory_rash": [
+            "Avoid likely triggers such as harsh soaps, cosmetics, friction, or heat.",
+            "Use bland moisturizer and gentle skin care while it settles.",
+            "Stop any new product that clearly started or worsened the rash.",
+        ],
+        "Viral_skin_disease": [
+            "Avoid scratching or breaking the skin over the area.",
+            "Avoid close skin contact if the rash is blistering or spreading.",
+            "Seek review if new spots keep appearing or the area keeps returning.",
+        ],
+        "Parasitic_infestation": [
+            "Wash clothes, towels, and bedding well.",
+            "Avoid close skin contact until you know what it is.",
+            "If others at home are itching too, arrange review for all close contacts.",
+        ],
+    }
+    if normalized_label in label_step_bank:
+        return label_step_bank[normalized_label]
+
+    bucket_step_bank: dict[str, list[str]] = {
+        "oncologic": label_step_bank["Suspicious_lesion"],
+        "fungal": label_step_bank["Fungal_infection"],
+        "bacterial": label_step_bank["Bacterial_infection"],
+        "inflammatory": label_step_bank["Inflammatory_rash"],
+        "low_risk": label_step_bank["Low_risk"],
+        "general": label_step_bank["Benign_lesion"],
+    }
+    return bucket_step_bank.get(condition_bucket, label_step_bank["Benign_lesion"])
+
+
 def build_recommended_steps(
     risk_level: str,
     primary_recommendation: str,
     possible_conditions: list[str],
     symptoms: dict[str, Any],
     confidence: float | None = None,
+    top_label: str | None = None,
 ) -> list[str]:
     possible_text = ", ".join(possible_conditions[:2]).lower() if possible_conditions else "the current skin pattern"
+    condition_bucket = infer_condition_bucket(top_label, symptoms)
     fungal_like = any(
         term in possible_text for term in ("fungal", "ringworm", "tinea")
     ) or symptoms.get("ring_shape") is True
@@ -830,6 +971,8 @@ def build_recommended_steps(
     )
 
     steps: list[str] = []
+    steps.append(primary_recommendation)
+    steps.extend(_label_specific_recommended_steps(top_label=top_label, condition_bucket=condition_bucket))
 
     if risk_level == "high" or urgent_symptoms:
         steps.extend(
@@ -837,40 +980,34 @@ def build_recommended_steps(
                 "Arrange an in-person dermatology or medical review within 24-72 hours.",
                 "If the area is actively bleeding, rapidly growing, or not healing, do not delay getting it checked.",
                 "Take clear photos today so you can compare any further change before your appointment.",
-                "Avoid self-treating with steroid or acid-based creams unless a clinician has advised them.",
-                "If you develop severe pain, spreading redness, fever, or marked worsening, seek urgent care the same day.",
             ]
         )
     elif risk_level == "medium":
         steps.extend(
             [
-                "Book a dermatology or primary-care review within 5-7 days.",
-                "Recheck the area daily for change in size, shape, color, bleeding, or pain.",
-                "Take one clear photo now and another in a few days to track visible change.",
-                "Avoid picking, scratching, or applying strong over-the-counter treatments until reviewed.",
+                "Book a medical review within 5-7 days if the area is not clearly improving.",
+                "Recheck the area daily for change in size, color, bleeding, pain, or spread.",
+                "Take a clear photo now so you can compare it over the next few days.",
             ]
         )
     else:
         steps.extend(
             [
-                "Monitor the area over the next 2-4 weeks and watch for change in color, shape, size, itching, or bleeding.",
-                "Repeat the screening or arrange a medical review sooner if the lesion changes before that time.",
-                "Keep the area clean, avoid irritation, and use gentle skin care while observing it.",
-                "Take a baseline photo today so you have something to compare against later.",
+                "Monitor the area over the next 2-4 weeks and watch for new change.",
+                "Repeat the screening or arrange review sooner if it worsens before that time.",
+                "Take a baseline photo today so you can compare it later.",
             ]
         )
 
-    if fungal_like:
-        steps.append("Because the pattern may be fungal, keep the area dry and avoid sharing towels or clothing until it settles or is checked.")
-    elif inflammatory_like:
-        steps.append("Because the pattern may be inflammatory, try to avoid obvious triggers such as harsh soaps, cosmetics, or friction.")
-    elif suspicious_like:
-        steps.append("Because the pattern includes suspicious features, prioritize clinician review rather than relying only on repeat self-checks.")
+    if fungal_like and condition_bucket != "fungal":
+        steps.append("Because there may also be a fungal pattern, keep the area dry and avoid sharing towels or clothing.")
+    elif inflammatory_like and condition_bucket != "inflammatory":
+        steps.append("Because irritation may be contributing, try to avoid harsh soaps, cosmetics, and friction.")
+    elif suspicious_like and condition_bucket != "oncologic":
+        steps.append("Because some features still look concerning, escalate to clinician review if you notice further change.")
 
     if confidence is not None and confidence < 0.6:
         steps.append("The pattern estimate is less certain, so it is safer to escalate to an in-person review if anything changes.")
-
-    steps.insert(0, primary_recommendation)
 
     deduped: list[str] = []
     for step in steps:

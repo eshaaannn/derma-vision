@@ -20,7 +20,6 @@ def _parse_cors_origins(value: str) -> list[str]:
 
 
 class Settings:
-    APP_NAME: str = os.getenv("APP_NAME", "Derma Vision API")
     APP_VERSION: str = os.getenv("APP_VERSION", "0.1.0")
     API_KEY: str | None = os.getenv("API_KEY")
     CORS_ORIGINS: list[str] = _parse_cors_origins(

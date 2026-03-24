@@ -12,6 +12,7 @@ MVP_CONDITIONS: dict[str, str] = {
     "Fungal_infection": "Fungal infection",
     "Bacterial_infection": "Bacterial infection",
     "Inflammatory_rash": "Inflammatory rash",
+    "Low_risk": "Low-risk skin change",
     "Suspicious_lesion": "Suspicious lesion",
     "Benign_lesion": "Benign lesion",
     "Parasitic_infestation": "Parasitic infestation",
@@ -26,6 +27,8 @@ _LABEL_ALIASES = {
     "bacterial_infection": "Bacterial_infection",
     "inflammatory rash": "Inflammatory_rash",
     "inflammatory_rash": "Inflammatory_rash",
+    "low risk": "Low_risk",
+    "low_risk": "Low_risk",
     "suspicious lesion": "Suspicious_lesion",
     "suspicious_lesion": "Suspicious_lesion",
     "benign lesion": "Benign_lesion",
@@ -56,6 +59,8 @@ def normalize_condition_key(label: str | None) -> str:
         return "Parasitic_infestation"
     if "rash" in normalized or "dermat" in normalized or "eczema" in normalized or "inflamm" in normalized:
         return "Inflammatory_rash"
+    if "low_risk" in normalized or "low risk" in normalized or "acne" in normalized or "pimple" in normalized:
+        return "Low_risk"
     if "suspicious" in normalized or "melan" in normalized or "cancer" in normalized:
         return "Suspicious_lesion"
     return "Benign_lesion"

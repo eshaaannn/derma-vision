@@ -63,6 +63,12 @@ def _questionnaire_score(primary_condition: str, answers: dict[str, bool]) -> fl
             score = min(score, 0.12)
         if answers.get("pain_or_discomfort") is False:
             score = min(score, 0.08)
+    elif primary_condition == "Low_risk":
+        score = min(score, 0.12)
+        if answers.get("unchanged"):
+            score = min(score, 0.08)
+        if answers.get("pain_or_discomfort") is False:
+            score = min(score, 0.06)
     elif primary_condition == "Suspicious_lesion":
         if answers.get("changed_size"):
             score += 0.18
@@ -169,7 +175,7 @@ def evaluate_risk(
         and not any(symptoms.values())
         and answers.get("pain_or_discomfort") in {False, None}
     )
-    if primary_condition == "Benign_lesion" and stable_and_quiet:
+    if primary_condition in {"Benign_lesion", "Low_risk"} and stable_and_quiet:
         risk_score = min(risk_score, 0.28)
         factors.append("The area sounds stable without active symptoms")
 

@@ -549,6 +549,7 @@ async def predict_enhanced(
         possible_conditions=possible_conditions,
         symptoms=merged_context,
         confidence=confidence,
+        top_label=top_label,
     )
 
     followup_items = [{"key": key, "question": question} for key, question in followup_question_items]
@@ -624,6 +625,7 @@ async def predict_enhanced(
         risk_score=final_score,
         top_label=top_label,
         possible_conditions=possible_conditions,
+        recommended_steps=recommended_steps,
         risk_message=messaging["risk_message"],
         simple_explanation=simple_explanation,
         recommendation=messaging["recommendation"],

@@ -25,6 +25,11 @@ CONDITION_STEPS: dict[str, list[str]] = {
         "Use soothing creams or bland moisturizers if they usually help you.",
         "Monitor for ongoing irritation.",
     ],
+    "Low_risk": [
+        "Keep the area clean and avoid picking at it.",
+        "Use gentle skin care and avoid harsh scrubs or strong acids unless advised.",
+        "Monitor for spread, pain, or any clear change.",
+    ],
     "Parasitic_infestation": [
         "Wash clothes, bedding, and towels well.",
         "Avoid close contact if others may be affected.",
@@ -104,6 +109,13 @@ def _signal_support_for_condition(condition_key: str, text_signals: dict[str, An
             support += 0.12
         if text_signals.get("progression") == "stable":
             support += 0.08
+    elif condition_key == "Low_risk":
+        if answers.get("unchanged"):
+            support += 0.18
+        if answers.get("pain_or_discomfort") is False:
+            support += 0.14
+        if text_signals.get("progression") == "stable":
+            support += 0.1
 
     return support
 

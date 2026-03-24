@@ -34,6 +34,7 @@ DEFAULT_LABEL_RISK = {
     "Viral_skin_disease": 0.48,
     "Fungal_infection": 0.42,
     "Inflammatory_rash": 0.34,
+    "Low_risk": 0.08,
     "Benign_lesion": 0.14,
     "Cancer": 0.92,
     "Non-Cancer": 0.14,
@@ -220,6 +221,8 @@ def _decision_for_label(top_label, risk_level):
         return "Pattern suggests an infectious skin condition. Clinical evaluation is advised if symptoms worsen or spread."
     if "inflamm" in normalized:
         return "Pattern is more consistent with an inflammatory rash. Monitor symptoms and arrange review if it does not improve."
+    if "low_risk" in normalized or "low risk" in normalized:
+        return "Pattern looks low risk overall. Monitor it and seek review if it becomes painful, spreads, or changes."
     if "benign" in normalized:
         return "Pattern appears lower risk. Continue monitoring for visible change."
     return "Moderate-risk pattern detected. Clinical follow-up is advised."
