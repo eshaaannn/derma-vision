@@ -33,13 +33,12 @@ Before deploying this frontend to Vercel:
 
 1. Set the Vercel project root directory to `derma-vision/frontend`.
 2. Add these Production environment variables in Vercel:
-   `VITE_API_BASE_URL`
    `VITE_API_KEY`
    `VITE_SUPABASE_URL`
    `VITE_SUPABASE_ANON_KEY`
    `VITE_MAX_IMAGE_COUNT`
-3. Point `VITE_API_BASE_URL` to your deployed backend over HTTPS, not `localhost`.
-4. Update the backend `CORS_ORIGINS` to include your Vercel domain, for example:
+3. Let production use the checked-in `/api` proxy path. `vercel.json` forwards `/api/*` to the Render backend, so the browser talks to the same origin and avoids CORS upload failures.
+4. If you intentionally bypass the proxy and call Render directly from the browser, update the backend `CORS_ORIGINS` to include your Vercel domain, for example:
 
 ```env
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://your-project.vercel.app
@@ -52,12 +51,13 @@ CORS_ORIGIN_REGEX=^https://your-project(-[a-z0-9]+)?\.vercel\.app$
 ```
 
 5. Add the Vercel site URL and any custom domain to Supabase Auth redirect settings if you use email confirmation, magic links, or OAuth.
-6. Keep the Vercel SPA rewrite in `vercel.json` so direct refreshes on routes like `/dashboard` or `/scan` do not return 404.
+6. Keep the API proxy rewrite and SPA rewrite in `vercel.json` so uploads route through Vercel and direct refreshes on routes like `/dashboard` or `/scan` do not return 404.
 
 Important:
 
 - `VITE_*` variables are exposed to the browser. `VITE_API_KEY` is not a secret once deployed.
 - If the backend stays on plain HTTP while the frontend is on HTTPS, browser requests will be blocked as mixed content.
+- For local development, `.env` can still point to `http://localhost:8000`; the `/api` proxy is only for deployed Vercel builds.
 
 ## API
 
