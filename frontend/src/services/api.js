@@ -1,21 +1,38 @@
 import axios from "axios";
 
 const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
-const apiBaseUrl = rawApiBaseUrl
-  ? rawApiBaseUrl.replace(/\/+$/, "")
-  : import.meta.env.DEV
-    ? "http://localhost:8000"
-    : "";
 const apiKey = import.meta.env.VITE_API_KEY;
 const isProd = import.meta.env.PROD;
-const isLocalApi =
-  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(apiBaseUrl);
+const vercelProxyBaseUrl = "/api";
+
+function normalizeBaseUrl(value) {
+  if (!value) return "";
+  return value === "/" ? value : value.replace(/\/+$/, "");
+}
+
+function shouldUseVercelProxy() {
+  if (!isProd || typeof window === "undefined") return false;
+  return /\.vercel\.app$/i.test(window.location.hostname);
+}
+
+const apiBaseUrl = shouldUseVercelProxy()
+  ? vercelProxyBaseUrl
+  : rawApiBaseUrl
+    ? normalizeBaseUrl(rawApiBaseUrl)
+    : import.meta.env.DEV
+      ? "http://localhost:8000"
+      : vercelProxyBaseUrl;
+const isLocalApi = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(apiBaseUrl);
 
 if (!apiBaseUrl && isProd) {
   throw new Error("Missing VITE_API_BASE_URL. Refusing to start in production without a backend URL.");
 }
 if (isProd && isLocalApi) {
   throw new Error("VITE_API_BASE_URL points to localhost. Set it to your deployed backend URL before shipping.");
+}
+if (shouldUseVercelProxy() && rawApiBaseUrl && normalizeBaseUrl(rawApiBaseUrl) !== vercelProxyBaseUrl) {
+  // eslint-disable-next-line no-console
+  console.warn("Using the Vercel /api proxy in production to avoid cross-origin upload failures.");
 }
 if (!rawApiBaseUrl && import.meta.env.DEV) {
   // eslint-disable-next-line no-console
